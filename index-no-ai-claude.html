@@ -283,10 +283,6 @@ a { color: var(--navy); }
 .mix { font-variant-numeric: tabular-nums; margin-right: 8px; }
 .map-t .cell-in .dd { min-width: 180px; }
 .sizing-t { width: auto; min-width: 100%; }
-.tot-ok, .tot-bad { display: inline-flex; gap: 4px; align-items: center; }
-.tot-ok .ic { color: var(--success); }
-.tot-bad { color: var(--navy); }
-.tot-bad .ic { color: var(--warning); }
 
 /* ---------- Setup ---------- */
 .methods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -569,6 +565,22 @@ abbr[title] { text-decoration: none; cursor: help; }
 .fc-t tr.has-err td.derived-cell { color: var(--error); }
 .realloc-ctl .rdesc, .arch-sum .hint { max-width: 72ch; }
 .arch-sum { margin-top: 12px; }
+.all-asm .sub-h { margin: 20px 0 8px; }
+.all-asm .grid-wrap { max-height: none; overflow-y: visible; }
+.kv-t th.rowh { width: 50%; font-weight: 400; color: var(--muted); }
+.roll-link { font-weight: 600; white-space: nowrap; }
+.cmp-diff { font-weight: 600; background: var(--info-tint); padding: 0 4px; border-radius: 2px; }
+/* 2026-10-12: response curve inputs with a live chart (split screen) */
+.curve-blk { margin-top: 20px; }
+.curve-blk .hint { max-width: 90ch; }
+.curve-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; margin-top: 12px; }
+@media (max-width: 1100px) { .curve-split { grid-template-columns: minmax(0, 1fr); } }
+.curve-t .input { width: 88px; }
+.curve-t .rowh { white-space: nowrap; }
+.curve-plot svg { display: block; width: 100%; height: auto; background: var(--surface-raised); border: 1px solid var(--border-container); border-radius: 4px; }
+.curve-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; margin-top: 8px; }
+.sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.sw-dash { background: repeating-linear-gradient(90deg, var(--navy) 0 4px, transparent 4px 7px); opacity: 0.5; }
 .arch-t { max-width: 520px; }
 .cmp-t tr.cmp-sec th { background: var(--surface-tinted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .cmp-dec-t td { min-width: 120px; }
@@ -583,7 +595,7 @@ abbr[title] { text-decoration: none; cursor: help; }
 .soft-warn .ic { color: var(--warning); flex: none; margin-top: 2px; }
 .driver-n { font-size: 12px; color: var(--muted); font-style: italic; }
 .up-t { max-width: 900px; }
-/* v0.5.1 (CS-1 reference-workbook calculation): three editable shares, read-only Implied SF % and Adds to, amber forecast-check warnings */
+/* v0.5.1 (CS-1 reference-workbook calculation): three editable shares, read-only Implied SF % (Adds to removed 2026-10-12), amber first-year forecast-check warning */
 .fc-t td.fc-adds { white-space: nowrap; }
 .fc-t td.fc-adds.is-warn { background: var(--warning-tint); }
 .fc-t tr.has-warn th.rowh { box-shadow: inset 3px 0 0 var(--warning); }
@@ -649,9 +661,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     { id: 'minCalls', owner: 'sizing', unit: 'int', methods: ['affordable', 'response'],
       label: () => 'Minimum calls' },
     { id: 'plannedCalls', owner: 'sizing', unit: 'int', methods: ['workload'],
-      label: g => `Planned annual calls per ${GRAIN[g].one}` },
-    { id: 'customSharePct', owner: 'sizing', unit: 'percent', methods: ['affordable', 'response'], whenAllocation: 'custom',
-      label: () => 'Value share %' }
+      label: g => `Planned annual calls per ${GRAIN[g].one}` }
+    // customSharePct (Value share %, user-entered allocation) retired 2026-10-12.
   ];
 
   const RESULT_LABELS = {
@@ -684,7 +695,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   };
 
   const OPTION_LABELS = {
-    allocation: { equal: 'Equal across eligible segments', proportional: 'Proportional to composite value', custom: 'User-entered distribution' },
+    allocation: { proportional: 'Proportional to composite value' },   // equal and user-entered retired 2026-10-12
     roiBasis: { gross: 'Gross ratio (value ÷ cost)', net: 'Net ROI ((value − cost) ÷ cost)' },
     stoppingRule: {
       'first-fail': 'Stop at first failing call (reference model)',
@@ -731,7 +742,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     allocation: 'proportional', roiBasis: 'gross', stoppingRule: 'first-fail', costMode: 'fullyLoaded',
     costPerCallMethod: 'single-window', fteRounding: 'nearest', capacityInput: 'derived', minimumBoundary: 'inclusive',
     cutoffTie: 'include', reachAppliesTo: 'calls', maxCallsSource: 'segment', carryoverConvention: 'receivingYear',
-    reallocateExcluded: false, forecastMode: 'carryover+other'
+    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 review (Kunal): reallocate by default, toggle kept (was false, D15)
   };
   // capacityInput 'derived' (v0.5, CS-5) is a UI default only: the engine still treats an absent capacityInput as direct.
 
@@ -786,7 +797,7 @@ abbr[title] { text-decoration: none; cursor: help; }
 (function (root) {
   'use strict';
 
-  const VERSION = 'fs-engine 1.9.1';
+  const VERSION = 'fs-engine 1.10.0';   // 1.10.0 (2026-10-12): curve parameters, proportional-only allocation, first-year check
 
   // Locked methodology (decision 9). delta cancels under normalization; kept for traceability.
   const ARCHETYPES = Object.freeze({
@@ -796,10 +807,25 @@ abbr[title] { text-decoration: none; cursor: help; }
     Conservatives: Object.freeze({ delta: 5, gamma: 2.0, rho: 50 })
   });
   const ARCH_NAMES = Object.keys(ARCHETYPES);
+  // 2026-10-12 review (Kunal): gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
+  // values above. Decision 9 is amended: the defaults stay the reference values, but the user can change the curve shape.
+  // delta cancels under normalization, so it is not an input. Absent or partial curveParams fall back to the defaults.
+  function archetypesFor(ma) {
+    const cp = (ma && ma.curveParams && typeof ma.curveParams === 'object') ? ma.curveParams : {};
+    const out = {};
+    ARCH_NAMES.forEach(n => {
+      const d = ARCHETYPES[n], u = cp[n] || {};
+      out[n] = Object.freeze({ delta: d.delta, gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
+    });
+    return Object.freeze(out);
+  }
+  const curveParamsEdited = ma => { const a = archetypesFor(ma); return ARCH_NAMES.filter(n => a[n].gamma !== ARCHETYPES[n].gamma || a[n].rho !== ARCHETYPES[n].rho); };
 
   const METHODS = ['affordable', 'response', 'workload'];
   const GRAINS = ['hcp', 'account', 'site'];
-  const ALLOCATIONS = ['equal', 'proportional', 'custom'];
+  // 2026-10-12 review: value is always allocated in proportion to composite value. 'equal' and 'custom' (user-entered
+  // shares) are retired for Affordable Coverage and Response Curve; a saved input that still carries them fails validation.
+  const ALLOCATIONS = ['proportional'];
   const BASES = ['gross', 'net'];
   const RULES = ['first-fail', 'min-block', 'max-pass'];
   const COST_MODES = ['fullyLoaded', 'layers'];
@@ -811,7 +837,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   const REACH_APPLIES = ['calls', 'callsAndValue'];
   const MAX_SOURCES = ['segment', 'entityAttribute'];
   const CARRY_CONVENTIONS = ['receivingYear', 'sourceYear'];
-  const SHARE_TOL = 1e-6;       // custom share / archetype mix must total 100 within this
+  const SHARE_TOL = 1e-6;       // archetype mix must total 100 within this
   const TIE_TOL = 1e-12;        // relative tolerance on the >= cutoff comparison (PE-03)
   const MAX_ISSUES_PER_CODE = 20;
 
@@ -844,7 +870,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     impactablePct: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.impactablePct) || 'Salesforce-impactable %',
     sfPct: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.sfPct) || 'Salesforce-impactable %', forecastMode: 'Forecast inputs',
     reallocateExcluded: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.reallocateExcluded) || 'Reallocate value from excluded segments',
-    specialty: 'Specialty', decile: 'Decile' };
+    specialty: 'Specialty', decile: 'Decile', curveParams: 'Response curve parameters', gamma: 'Curve shape (gamma)', rho: 'Curve saturation (rho)' };
   function fieldLabel(path, grain) {
     const ids = String(path || '').replace(/\[[^\]]*\]/g, '').split('.').filter(Boolean);
     const g = FL && FL.GRAIN && FL.GRAIN[grain] ? grain : 'hcp';
@@ -995,7 +1021,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   // sfPctEntered (number or null); checkSumPct = (sfPctEntered ?? impliedSfPct) + otherChannelPct + carryoverSharePct;
   // floored = F - Other - CarryIn < 0 (default mode only; tolerance amountTol(F) so float noise at exactly 100% is not a floor).
   // F = 0: shares and checkSumPct are null and nothing is checked. Non-blocking warnings (default mode only):
-  //   shares-not-100 when |checkSumPct - 100| > 0.5 (not raised for a floored year with no entered sfPct: there the gap is
+  //   shares-not-100 when |checkSumPct - 100| > 0.5, first forecast year only (2026-10-12 review) (not raised for a floored year with no entered sfPct: there the gap is
   //   the floor itself, which sf-floored reports); sf-floored when floored.
   // F1 (v0.4 fix round): the calibration factor is legacy (default 1, not a client input). At exactly 1 the pool text
   // drops the calibration wording; any other saved value keeps the "x calibration k" wording.
@@ -1105,7 +1131,9 @@ abbr[title] { text-decoration: none; cursor: help; }
       const checkSumPct = F ? (sfEntered !== null ? sfEntered : impliedSfPct) + otherPctEff + carryoverSharePct : null;
       const floored = mode === 'carryover+other' && F - other - carry < -amountTol(F);
       if (mode === 'carryover+other' && F) {
-        if (Math.abs(checkSumPct - 100) > CHECK_TOL_PTS + 1e-9 && !(floored && sfEntered === null))
+        // 2026-10-12 review (Kunal): only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
+        // carrying over (diminishing) from earlier cohorts, so an entered Salesforce-impactable % is not expected to add up.
+        if (i === 0 && Math.abs(checkSumPct - 100) > CHECK_TOL_PTS + 1e-9 && !(floored && sfEntered === null))
           warns.push({ code: 'shares-not-100', path: yPath(y, 'sfPct'),
             message: `${y.year} adds to ${pct1(checkSumPct)}; carryover and other channels imply Salesforce-impactable of ${pct1(impliedSfPct)}.`,
             year: y.year, checkSumPct, impliedSfPct });
@@ -1283,15 +1311,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (val.carryoverConvention !== undefined && !CARRY_CONVENTIONS.includes(val.carryoverConvention)) E.add('carryover-convention-invalid', 'methodAssumptions.value.carryoverConvention', `Carryover convention must be ${optChoices('carryoverConvention')}.`);
       if (val.calibrationFactor !== undefined && (!isNum(val.calibrationFactor) || val.calibrationFactor <= 0)) E.add('calibration-invalid', 'methodAssumptions.value.calibrationFactor', 'Calibration factor must be greater than zero (default 1.0).');
       if (val.grossMarginPct !== undefined && (!isNum(val.grossMarginPct) || val.grossMarginPct < 0 || val.grossMarginPct > 100)) E.add('gross-margin-invalid', 'methodAssumptions.value.grossMarginPct', 'Gross margin % must be between 0 and 100.');
-      if (!ALLOCATIONS.includes(opts.allocation)) E.add('allocation-invalid', 'methodAssumptions.allocation', `Allocation must be ${optChoices('allocation')}.`);
-      if (opts.allocation === 'custom') {
-        let tot = 0, bad = false;
-        segs.forEach((s, i) => {
-          if (!isNum(s.customSharePct) || s.customSharePct < 0) { bad = true; E.add('custom-share-missing', `segments[${i}].customSharePct`, 'Each segment needs a value share % of zero or more.'); }
-          else tot += s.customSharePct;
-        });
-        if (!bad && Math.abs(tot - 100) > SHARE_TOL) E.add('custom-share-total', 'segments[].customSharePct', `Value shares must total 100%; they total ${fmt(tot)}%.`);
-      }
+      if (!ALLOCATIONS.includes(opts.allocation)) E.add('allocation-invalid', 'methodAssumptions.allocation', `Allocation must be ${optChoices('allocation')}; equal and user-entered allocation were retired on 2026-10-12.`);
       const entityPath = method === 'response' && Array.isArray(inputs.entities) && inputs.entities.length > 0;
       if (opts.allocation === 'proportional' && !entityPath) {
         let tot = 0;
@@ -1301,8 +1321,6 @@ abbr[title] { text-decoration: none; cursor: help; }
         });
         if (tot <= 0 && !E.list.some(e => e.code === 'composite-value-invalid')) E.add('composite-value-zero', 'segments[].compositeValue', 'Composite values total zero, so proportional allocation is undefined.');
       }
-      if (opts.allocation === 'equal' && !segs.some(s => s && isNum(s.entities) && s.entities > 0 && isNum(s.reachPct) && s.reachPct > 0) && !entityPath)
-        E.add('no-eligible-segment', 'segments', 'Equal allocation needs at least one segment with entities and reach above zero.');
     }
     if ((method === 'affordable' || method === 'response') && ma.minimumBoundary !== undefined && !MIN_BOUNDARIES.includes(ma.minimumBoundary))
       E.add('minimum-boundary-invalid', 'methodAssumptions.minimumBoundary', `Minimum boundary must be ${optChoices('minimumBoundary')}.`);
@@ -1330,6 +1348,15 @@ abbr[title] { text-decoration: none; cursor: help; }
         E.add('cutoff-invalid', 'methodAssumptions.cutoff', 'Cutoff must be above 0 (gross ratio) or above -1 (net ROI).');
       if (!RULES.includes(o.stoppingRule)) E.add('stopping-rule-invalid', 'methodAssumptions.stoppingRule', `Stopping rule must be ${optChoices('stoppingRule')}.`);
       if (!isInt(o.scenarioMaxCalls) || o.scenarioMaxCalls <= 0) E.add('scenario-max-invalid', 'methodAssumptions.scenarioMaxCalls', 'Normalization point must be a whole number of calls above zero.');
+      if (ma.curveParams !== undefined && ma.curveParams !== null) {
+        if (typeof ma.curveParams !== 'object') E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
+        else Object.keys(ma.curveParams).forEach(n => {
+          const u = ma.curveParams[n] || {};
+          if (!ARCHETYPES[n]) { E.add('archetype-unknown', `methodAssumptions.curveParams.${n}`, `Unknown curve archetype "${n}"; expected one of ${ARCH_NAMES.join(', ')}.`); return; }
+          if (u.gamma !== undefined && u.gamma !== null && (!isNum(u.gamma) || u.gamma <= 0 || u.gamma > 10)) E.add('curve-gamma-invalid', `methodAssumptions.curveParams.${n}.gamma`, `${n}: shape (gamma) must be above 0 and at most 10.`);
+          if (u.rho !== undefined && u.rho !== null && (!isNum(u.rho) || u.rho <= 0 || u.rho > 10000)) E.add('curve-rho-invalid', `methodAssumptions.curveParams.${n}.rho`, `${n}: saturation (rho) must be above 0 and at most 10,000.`);
+        });
+      }
       const ents = inputs.entities;
       if (Array.isArray(ents) && ents.length > 0) {
         const ids = new Set();
@@ -1380,26 +1407,16 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
 
   // ---------- allocation of the value pool to segments (Spec §2.4) ----------
+  // Proportional to composite value only (2026-10-12 review); validate() rejects any other allocation.
   function segmentShares(segs, allocation, segValues) {
-    if (allocation === 'custom') return segs.map(s => s.customSharePct / 100);
-    if (allocation === 'equal') {
-      const elig = segs.map(s => isNum(s.entities) && s.entities > 0 && s.reachPct > 0);
-      const n = elig.filter(Boolean).length;
-      return elig.map(e => (e && n ? 1 / n : 0));
-    }
     const tot = sum(segValues);
     return segValues.map(v => (tot > 0 ? v / tot : 0));
   }
 
-  // CS-2: the same allocation methods over a restricted eligible set E (a Set of segment indices).
-  //   proportional: composite / sum of composite over E; equal: 1 / |E|; custom: shares over E renormalised to 100%.
+  // CS-2: the same allocation over a restricted eligible set E (a Set of segment indices):
+  //   composite / sum of composite over E.
   function restrictedShares(segs, allocation, segValues, E) {
     const inE = i => E.has(i);
-    if (allocation === 'custom') {
-      const tot = sum(segs.map((s, i) => (inE(i) ? s.customSharePct : 0)));
-      return segs.map((s, i) => (inE(i) && tot > 0 ? s.customSharePct / tot : 0));
-    }
-    if (allocation === 'equal') return segs.map((s, i) => (inE(i) ? 1 / E.size : 0));
     const tot = sum(segValues.map((v, i) => (inE(i) ? v : 0)));
     return segValues.map((v, i) => (inE(i) && tot > 0 ? v / tot : 0));
   }
@@ -1595,11 +1612,13 @@ abbr[title] { text-decoration: none; cursor: help; }
     const iv = impactableValue(ma.value, sh); trace.push(...iv.trace);
     const cpc = cost.effective, cap = sh.capacity;
     const X = o.scenarioMaxCalls;
+    const AR = archetypesFor(ma), edited = curveParamsEdited(ma);
     const denoms = {};
-    ARCH_NAMES.forEach(n => { denoms[n] = responseCurve(ARCHETYPES[n], X); });
+    ARCH_NAMES.forEach(n => { denoms[n] = responseCurve(AR[n], X); });
     trace.push(step('Response curve', 'Response(x) = (delta x x)^gamma / (x^gamma + rho); normalized = Response(x) / Response(' + X + ')', null, 'Spec §4.1'));
+    trace.push(step('Curve parameters', edited.length ? `edited for ${edited.join(', ')}; ${ARCH_NAMES.map(n => `${n} gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ')}` : 'reference defaults (decision 9) for every archetype', edited.length, 'Response curve inputs (2026-10-12)'));
     ARCH_NAMES.forEach(n => trace.push(step(`Normalization denominator, ${n}`,
-      `(${ARCHETYPES[n].delta} x ${X})^${ARCHETYPES[n].gamma} / (${X}^${ARCHETYPES[n].gamma} + ${ARCHETYPES[n].rho}) = ${fmt(denoms[n])}`, denoms[n], 'Spec §4.2')));
+      `(${AR[n].delta} x ${X})^${AR[n].gamma} / (${X}^${AR[n].gamma} + ${AR[n].rho}) = ${fmt(denoms[n])}`, denoms[n], 'Spec §4.2')));
     const eq = roiEquivalent(o.roiBasis, o.cutoff);
     trace.push(step('Marginal ROI test', `${optLabel('roiBasis', o.roiBasis)}: ${o.roiBasis === 'gross' ? 'incremental contribution / incremental cost' : '(incremental contribution - incremental cost) / incremental cost'} ${o.cutoffTie === 'exclude' ? '>' : '>='} ${fmt(o.cutoff)} (gross ratio ${fmt(eq.gross)}, net ROI ${fmt(eq.net)})`, o.cutoff, 'Decision 4 / PE-03'));
     trace.push(step('Stopping rule', optLabel('stoppingRule', o.stoppingRule), null, 'Decision 5'));
@@ -1616,8 +1635,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       const totalVal = sum(segVal);
       const totE = restrict ? sum(segVal.filter((x, i) => restrict.has(i))) : totalVal;
       trace.push(step('Entity data supplied', `${ents.length} entity rows with value and curve archetype across ${segs.length} segments; value total ${fmt(totalVal)}`, ents.length, 'Upstream input'));
-      const shares = allocShares(segs.map((s, i) => Object.assign({}, s, { entities: segCount[i] })), o.allocation, segVal, restrict);
-      trace.push(step('Allocation', `${optLabel('allocation', o.allocation)}: entity value = pool ${fmt(iv.pool)} x segment share x entity value / segment value${restrictNote(restrict, segs.length)}`, null, 'Spec §2.4'));
+      trace.push(step('Allocation', `${optLabel('allocation', o.allocation)}: entity value = pool ${fmt(iv.pool)} x entity value / total entity value${restrictNote(restrict, segs.length)}`, null, 'Spec §2.4'));
       entityResults = new Array(ents.length);
       let capOverrides = 0;
       for (let j = 0; j < ents.length; j++) {
@@ -1627,11 +1645,10 @@ abbr[title] { text-decoration: none; cursor: help; }
         const v = isNum(e.value) ? e.value : 0;
         let K;
         if (restrict && !restrict.has(i)) K = 0;                    // CS-2: segment dropped in an earlier pass
-        else if (o.allocation === 'proportional') K = totE > 0 ? iv.pool * (v / totE) : 0;
-        else K = iv.pool * shares[i] * (segVal[i] > 0 ? v / segVal[i] : 1 / segCount[i]);
+        else K = totE > 0 ? iv.pool * (v / totE) : 0;            // proportional to entity value (only allocation since 2026-10-12)
         const eCap = o.maxCallsSource === 'entityAttribute' && e.attrs && isInt(e.attrs.maxCalls) ? e.attrs.maxCalls : s.maxCalls;
         if (eCap !== s.maxCalls) capOverrides++;
-        const r = selectCalls(K, ARCHETYPES[e.archetype], denoms[e.archetype], cpc, o, eCap, s.minCalls);
+        const r = selectCalls(K, AR[e.archetype], denoms[e.archetype], cpc, o, eCap, s.minCalls);
         const reach = s.reachPct / 100;
         const reachedWeight = r.calls > 0 ? reach : 0;
         const a = acc[i];
@@ -1657,7 +1674,7 @@ abbr[title] { text-decoration: none; cursor: help; }
           if (m <= 0 || s.entities <= 0) return;
           const n = s.entities * m;
           const K = segAlloc / s.entities;                          // value split by mix => equal value per entity
-          const r = selectCalls(K, ARCHETYPES[name], denoms[name], cpc, o, s.maxCalls, s.minCalls);
+          const r = selectCalls(K, AR[name], denoms[name], cpc, o, s.maxCalls, s.minCalls);
           a.reached += r.calls > 0 ? n * reach : 0;
           a.calls += r.calls * n * reach;
           a.contribution += r.contribution * n * (o.reachAppliesTo === 'callsAndValue' ? reach : 1);
@@ -1879,7 +1896,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
 
   const FSEngine = Object.freeze({
-    version: VERSION, ARCHETYPES,
+    version: VERSION, ARCHETYPES, archetypesFor,
     validate, calculate, resolveCapacity, costPerCall, impactableValue, planningAllocation, roiEquivalent,
     _internal: Object.freeze({ responseCurve, selectCalls, stableStringify, fnv1a })
   });
@@ -2743,7 +2760,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const specErr = d => err('value-missing', `${RP(d)}.specialty`, `${RW(d)}: ${label('specialty')} is empty.`);
 
     const blankSeg = () => ({ segment: '', entities: 0, compositeValue: null, reachPct: null, maxCalls: null, minCalls: null,
-      plannedCalls: null, customSharePct: null, archetypeMix: null });
+      plannedCalls: null, archetypeMix: null });
     const needValue = method !== 'workload';
     let segments = [], entities = null, rowCount = 0;
 
@@ -3220,6 +3237,9 @@ abbr[title] { text-decoration: none; cursor: help; }
   // timestamps: local time with UTC offset, e.g. "2026-09-25 12:00 UTC+02:00"
   function fmtTime(v) {
     if (v === null || v === undefined || v === '') return '';
+    // A bare calendar date has no time or zone; return it unchanged (new Date('YYYY-MM-DD') is UTC
+    // midnight and local getters would show the previous day west of UTC).
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
     const d = v instanceof Date ? v : (typeof v === 'number' ? new Date(v) : (/^\d{4}-\d{2}-\d{2}/.test(String(v)) ? new Date(String(v)) : null));
     if (!d || isNaN(d.getTime())) return String(v);
     const p2 = n => String(n).padStart(2, '0');
@@ -3302,7 +3322,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (method === 'affordable' || method === 'response') add('carryoverConvention', 'Carryover convention (forecast chain)', ma.value && ma.value.carryoverConvention, 'receivingYear');
     // Legacy calibration factor (CS-2): no longer a user input; listed only when a saved scenario carries a value other than 1.
     if (c.showCalib) add('calibrationFactor', 'Calibration factor', c.opts.calibrationFactor, 1, v => String(v));
-    if (c.showRealloc) add('reallocateExcluded', REALLOC_LABEL, ma.reallocateExcluded === true, false, v => reallocText(F, v), true);
+    if (c.showRealloc) add('reallocateExcluded', REALLOC_LABEL, ma.reallocateExcluded === true, (F.OPTION_DEFAULTS || {}).reallocateExcluded === true, v => reallocText(F, v), true);   // default On since 2026-10-12
     return out;
   }
   const UPSTREAM_READ_ONLY = 'Upstream values are read-only (amended FR-07); no corrections are possible.';
@@ -3366,12 +3386,11 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* v0.5.1 (CS-1 "the reference-workbook way"): Salesforce-impactable % is a check value; a v0.5 draft with a non-default forecastMode
      is shown read-only as an older draft (same wording as the UI). */
   const SF_CHECK_LABEL = 'Salesforce-impactable % (check)';
-  const SF_CHECK_HELP = "Sizing uses carryover and other channels, as in the reference model. Salesforce-impactable is a check: if it doesn't match the implied value, the year is flagged.";
+  const SF_CHECK_HELP = "Sizing uses carryover and other channels, as in the reference model. Salesforce-impactable is a check in the first year only: if it doesn't match the implied value, that year is flagged. Later years carry over from earlier cohorts and are not expected to add to 100%.";
   const LEGACY_MODE_LABEL = 'Saved with forecast inputs';
   const legacyModeText = (F, m) => `${forecastModeText(F, m)} (older draft)`;
   const isLegacyMode = v => forecastModeOf(v) !== 'carryover+other';
   const impliedLabel = F => (F.ASSUMPTION_LABELS && F.ASSUMPTION_LABELS.impliedSfPct) || 'Implied Salesforce-impactable %';
-  const addsLabel = F => (F.ASSUMPTION_LABELS && F.ASSUMPTION_LABELS.checkSumPct) || 'Adds to';
   const CHECK_TOL = 0.005;                                   // 0.5 percentage points (CS-1 check threshold)
   const shareLabel = k => (k === 'carryover' ? 'Carryover %' : k === 'other' ? 'Other channel %' : SF_LABEL);
   const RA_NOTE = 'calculated by the sizing engine (reallocation passes)';
@@ -3533,7 +3552,7 @@ abbr[title] { text-decoration: none; cursor: help; }
            other channel % and Salesforce-impactable % are all inputs (Salesforce-impactable may be blank); sizing uses
            carryover and other channels, and Salesforce-impactable % is a check value only. Live columns: Other channel,
            Carryover from earlier cohorts, New = MAX(0, B - Other - CarryIn), Implied Salesforce-impactable % = New / B,
-           Adds to = IF(entered blank, implied, entered) + other % + CarryIn / B, Check = IF(ABS(adds - 1) > 0.005, ...).
+           Check (first year only, 2026-10-12 review; the Adds to column is removed) = IF(ABS(IF(entered blank, implied, entered) + other % + CarryIn / B - 1) > 0.005, ...).
            A v0.5 snapshot saved with a non-default forecastMode (dormant engine modes B/C) keeps the v0.5 layout, read-only
            and labelled as an older draft. The withdrawn v0.4 impactablePct multiplier is ignored (the engine warns). */
         const mode = forecastModeOf(v);
@@ -3548,8 +3567,8 @@ abbr[title] { text-decoration: none; cursor: help; }
         S.line(['Impactable value build-up by year'], ST.SECTION);
         const hdrs = legacy
           ? ['Year', 'Forecast'].concat(['carryover', 'other', 'sf'].map(k => shareLabel(k) + (k === der ? ' (derived)' : '')), ['Other channel', 'Carryover from earlier cohorts', 'New field-impactable'])
-          : ['Year', 'Forecast', 'Carryover %', 'Other channel %', SF_LABEL, 'Other channel', 'Carryover from earlier cohorts', 'New field-impactable', impliedLabel(F), addsLabel(F), 'Check'];
-        const pvCol = legacy ? 8 : 11;
+          : ['Year', 'Forecast', 'Carryover %', 'Other channel %', SF_LABEL, 'Other channel', 'Carryover from earlier cohorts', 'New field-impactable', impliedLabel(F), 'Check (first year)'];
+        const pvCol = legacy ? 8 : 10;
         pvh(S.line(hdrs, ST.HDR), pvCol);
         const entered = { carryover: ['carryoverPct', 'Carryover %'], other: ['otherChannelPct', 'Other channel %'], sf: ['sfPct', 'Salesforce-impactable %'] };
         if (PV) ys.forEach((y, i) => {
@@ -3601,10 +3620,12 @@ abbr[title] { text-decoration: none; cursor: help; }
             S.set(yr[i], 6, carry, ST.INT, carryF);
             S.set(yr[i], 7, sf[i], ST.INT, `MAX(0,B${R}-F${R}-G${R})`);
             const implied = Fv === 0 ? '' : sf[i] / Fv;
-            const adds = Fv === 0 ? '' : (sSh === null ? implied : sSh) + oSh + carry / Fv;
             S.set(yr[i], 8, implied, ST.PCT1, `IF(B${R}=0,"",H${R}/B${R})`);
-            S.set(yr[i], 9, adds, ST.PCT1, `IF(B${R}=0,"",IF(E${R}="",I${R},E${R})+D${R}+G${R}/B${R})`);
-            S.set(yr[i], 10, Fv === 0 ? '' : (Math.abs(adds - 1) > CHECK_TOL + 1e-11 ? 'Check' : 'OK'), ST.DEF, `IF(B${R}=0,"",IF(ABS(J${R}-1)>${CHECK_TOL}+1E-11,"Check","OK"))`);   // slack matches the engine's (R2 v0.5.1)
+            // 2026-10-12 review: the "Adds to" column is removed; only the first year must reconcile to 100% (later years carry over).
+            if (i === 0) {
+              const adds = Fv === 0 ? '' : (sSh === null ? implied : sSh) + oSh + carry / Fv;
+              S.set(yr[i], 9, Fv === 0 ? '' : (Math.abs(adds - 1) > CHECK_TOL + 1e-11 ? 'Check' : 'OK'), ST.DEF, `IF(B${R}=0,"",IF(ABS(IF(E${R}="",I${R},E${R})+D${R}+G${R}/B${R}-1)>${CHECK_TOL}+1E-11,"Check","OK"))`);   // slack matches the engine's (R2 v0.5.1)
+            } else S.set(yr[i], 9, 'n/a', ST.DEF);
           }
           // cohort i's later years (entered rates): receiving year reads the rate stored on year j; source year (legacy) on year j-1
           if (mode !== 'other+sf') for (let j = i + 1; j < n; j++) M[i][j] = M[i][j - 1] * pct(ys[effConv === 'sourceYear' ? j - 1 : j].carryoverPct);
@@ -3896,15 +3917,6 @@ abbr[title] { text-decoration: none; cursor: help; }
           jsV = cov && tot > 0 ? A.poolV * sv.compositeValue / tot : 0;
           const S1 = `SUMIF(${flagR},1,${aRange('compositeValue')})`;
           f = `IF(${flagC(i)}=1,IF(${S1}>0,${A.pool}*${aCell('compositeValue', k)}/${S1},0),0)`;
-        } else if (alloc === 'equal') {
-          const n = segs.filter((x, j) => coveredOf(j)).length;
-          jsV = cov && n ? A.poolV / n : 0;
-          f = `IF(${flagC(i)}=1,${A.pool}/COUNTIFS(${flagR},1),0)`;
-        } else if (alloc === 'custom' && A.segCols.customSharePct !== undefined && isNum(sv.customSharePct)) {
-          const tot = covSum('customSharePct');
-          jsV = cov && tot > 0 ? A.poolV * sv.customSharePct / tot : 0;
-          const S1 = `SUMIF(${flagR},1,${aRange('customSharePct')})`;
-          f = `IF(${flagC(i)}=1,IF(${S1}>0,${A.pool}*${aCell('customSharePct', k)}/${S1},0),0)`;
         }
         return f && close(jsV, cached) ? { v: cached, f } : { v: cached };
       }
@@ -3912,15 +3924,7 @@ abbr[title] { text-decoration: none; cursor: help; }
         const tot = sum(A.segVals.map(x => x.compositeValue));
         jsV = tot > 0 ? A.poolV * sv.compositeValue / tot : 0;
         f = `IF(SUM(${aRange('compositeValue')})>0,${A.pool}*${aCell('compositeValue', k)}/SUM(${aRange('compositeValue')}),0)`;
-      } else if (alloc === 'equal' && A.segCols.entities !== undefined && A.segCols.reachPct !== undefined) {
-        const el = x => isNum(x.entities) && x.entities > 0 && isNum(x.reachPct) && x.reachPct > 0;
-        const n = A.segVals.filter(el).length;
-        jsV = el(sv) && n ? A.poolV / n : 0;
-        f = `IF(AND(${aCell('entities', k)}>0,${aCell('reachPct', k)}>0),${A.pool}/COUNTIFS(${aRange('entities')},">0",${aRange('reachPct')},">0"),0)`;
-      } else if (alloc === 'custom' && A.segCols.customSharePct !== undefined && isNum(sv.customSharePct)) {
-        jsV = A.poolV * sv.customSharePct / 100;
-        f = `${A.pool}*${aCell('customSharePct', k)}`;
-      }
+      }   // proportional is the only allocation since 2026-10-12 (equal and user-entered retired)
       return f && close(jsV, cached) ? { v: cached, f } : { v: cached };
     });
     const allocLive = allocCells.some(x => x.f);
@@ -4177,7 +4181,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     const { F, inp } = c;
     const S = new SheetB(SHEETS.curves);
     const EN = G('FSEngine');
-    const arch = EN && EN.ARCHETYPES;
+    // the scenario's own curve parameters (2026-10-12: gamma and rho are inputs; defaults when not edited)
+    const arch = EN && (EN.archetypesFor ? EN.archetypesFor(inp.methodAssumptions || {}) : EN.ARCHETYPES);
     S.line(['Response Curves'], ST.TITLE);
     S.line(['Response(x) = (δ·x)^γ ÷ (x^γ + ρ); normalized response = Response(x) ÷ Response(X), where X is the normalization point.'], ST.NOTE);
     S.skip();
@@ -4391,7 +4396,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     let f = txt(t.formula);
     const OL = F.OPTION_LABELS || {};
     for (const grp of Object.keys(OL)) if (OL[grp][f]) return OL[grp][f];                       // whole text is a key
-    f = f.replace(/^(equal|proportional|custom):/, (m, k) => `${OL.allocation[k]}:`)
+    f = f.replace(/^(proportional):/, (m, k) => `${OL.allocation[k]}:`)
       .replace(/^(gross|net):/, (m, k) => `${OL.roiBasis[k]}:`);
     if (t.step === 'Response options') {
       const ma = c.ma, D = F.OPTION_DEFAULTS || {};
@@ -4448,8 +4453,7 @@ abbr[title] { text-decoration: none; cursor: help; }
           add('New field-impactable value', 'Forecast minus other channel minus carryover from earlier cohorts, not below zero', 'S_t = MAX(0, F_t − O_t − CarryIn_t)', 'Assumptions (value build-up)');
           // v0.5.1 CS-1: the Salesforce-impactable check (never changes a number)
           add(impliedLabel(F), 'New Salesforce-impactable value as a share of the forecast; blank when the forecast is 0', 's_t = S_t ÷ F_t', 'Assumptions (value build-up)');
-          add(addsLabel(F), 'Entered Salesforce-impactable % (the implied value when blank) plus the other-channel share plus carryover from earlier cohorts as a share of the forecast. A check only: sizing uses carryover and other channels', 'a_t = (entered s_t, else implied s_t) + o_t + CarryIn_t ÷ F_t', 'Assumptions (value build-up)');
-          add('Check', 'Check when the year is more than 0.5 percentage points from 100%, otherwise OK. Non-blocking', 'IF(ABS(a_t − 1) > 0.005, "Check", "OK")', 'Assumptions (value build-up)');
+          add('Check (first year)', 'First forecast year only: entered Salesforce-impactable % (the implied value when blank) plus the other-channel share must be within 0.5 percentage points of 100%. Later years are not checked because Salesforce impact keeps carrying over from earlier cohorts. Non-blocking; sizing uses carryover and other channels', 'IF(ABS((entered s_1, else implied s_1) + o_1 − 1) > 0.005, "Check", "OK")', 'Assumptions (value build-up)');
         }
         add('Cohort value', 'New value plus its carryover tail, discounted', 'NPV_t = S_t + Σ_(k=1..tail) M_t,t+k ÷ (1+d)^k', 'Assumptions (value build-up)');
         add('Annual impactable margin', 'Sum of the sizing-window cohort values times gross margin, divided by the window', 'V_annual = Σ NPV_t × GM ÷ W', 'Assumptions (value build-up)');
@@ -4460,7 +4464,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (method === 'affordable') {
       add(`Accessible ${F.GRAIN[g].many}`, `Number of ${F.GRAIN[g].many} in the segment times reach % (for example 310 × 90%)`, 'A_s = N_s × r_s%', 'Detailed Calculations');
       add('Allocated value', `Value pool times the segment share (${F.OPTION_LABELS.allocation[opts.allocation] || opts.allocation})`,
-        opts.allocation === 'equal' ? 'V_s = V ÷ (number of segments with entities and reach above 0%)' : opts.allocation === 'custom' ? 'V_s = V × value share %_s' : 'V_s = V × CV_s ÷ Σ CV',
+        'V_s = V × CV_s ÷ Σ CV',
         'Detailed Calculations');
       add('Affordable calls', 'Allocated value divided by cost per call times the total ROI cutoff', 'AC_s = V_s ÷ (c × ROI*)', 'Detailed Calculations');
       add(F.RESULT_LABELS.affordableCallsPerEntity(g), `Affordable calls divided by accessible ${F.GRAIN[g].many}`, 'a_s = AC_s ÷ A_s', 'Detailed Calculations');
@@ -4503,7 +4507,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       add('Reallocation passes', 'Run the segment calculation, drop the segments that receive no calls, re-share the whole value pool over the remaining segments and repeat until no further segment drops out', 'E_(p+1) = E_p − X_p; stop when X_p is empty', 'Sizing engine; Detailed Calculations (reallocation block)');
       add('Covered in final pass', 'Segments that still receive calls after the last pass (1 = yes); a fixed value from the sizing engine', 'cov_s ∈ {0, 1}', 'Detailed Calculations (grey)');
       add('Allocated value (reallocation On)', `Value pool times the segment share among covered segments (${F.OPTION_LABELS.allocation[al] || al})`,
-        al === 'equal' ? 'V_s = V ÷ Σ cov if cov_s = 1, else 0' : al === 'custom' ? 'V_s = V × share_s ÷ Σ_(cov) share if cov_s = 1, else 0' : 'V_s = V × CV_s ÷ Σ_(cov) CV if cov_s = 1, else 0', 'Detailed Calculations');
+        'V_s = V × CV_s ÷ Σ_(cov) CV if cov_s = 1, else 0', 'Detailed Calculations');
       add('Value in covered segments', 'Allocated value of the segments that receive calls in the final pass', 'V_cov = Σ_s V_s × [Calls_s > 0]', 'Detailed Calculations (reallocation block)');
       add('Value in excluded segments', 'Value pool minus the value in covered segments', 'V − V_cov', 'Detailed Calculations (reallocation block)');
     }
@@ -4694,7 +4698,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   const optionPath = k => OPTION_PATH[k] || `methodAssumptions.${k}`;
 
   // Value text for the AI Proposals sheet (text only; option keys shown as their labels).
-  const PCT_KEYS = new Set(['reachPct', 'customSharePct', 'inflationPct', 'discountRatePct', 'grossMarginPct', 'carryoverPct', 'otherChannelPct', 'impactablePct', 'sfPct']);
+  const PCT_KEYS = new Set(['reachPct', 'inflationPct', 'discountRatePct', 'grossMarginPct', 'carryoverPct', 'otherChannelPct', 'impactablePct', 'sfPct']);
   const OPTION_GROUP = { costMode: 'costMode', fteRounding: 'fteRounding', mode: 'capacityInput', allocation: 'allocation', roiBasis: 'roiBasis',
     stoppingRule: 'stoppingRule', minimumBoundary: 'minimumBoundary', cutoffTie: 'cutoffTie', reachAppliesTo: 'reachAppliesTo', maxCallsSource: 'maxCallsSource', forecastMode: 'forecastMode' };
   function numText(v) {
@@ -4907,7 +4911,6 @@ abbr[title] { text-decoration: none; cursor: help; }
       maxCalls: method === 'workload' ? null : MAX_CALLS[i],
       minCalls: method === 'workload' ? null : MIN_CALLS[i],
       plannedCalls: method === 'workload' ? PLANNED[i] : null,
-      customSharePct: null,
       archetypeMix: method === 'response' ? Object.assign({}, MIXES[i]) : null
     }));
   }
@@ -5038,7 +5041,6 @@ abbr[title] { text-decoration: none; cursor: help; }
       maxCalls: method === 'workload' ? null : MAX_CALLS[i] + sp.capAdj,
       minCalls: method === 'workload' ? null : MIN_CALLS[i],
       plannedCalls: method === 'workload' ? PLANNED[i] + sp.capAdj : null,
-      customSharePct: null,
       archetypeMix: method === 'response' ? Object.assign({}, MIXES[i]) : null
     })));
     return out;
@@ -5211,7 +5213,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     cutoffTie: OD.cutoffTie, reachAppliesTo: OD.reachAppliesTo, maxCallsSource: OD.maxCallsSource, carryoverConvention: OD.carryoverConvention,
     /* numeric defaults stated in the contract text (§1, v1.1) */
     windowYears: 3, tailYears: 2, grossMarginPct: 100, calibrationFactor: 1, cutoffGross: 1.0, scenarioMaxCalls: 48,
-    reallocateExcluded: OD.reallocateExcluded === true    // CS-2 draft default Off (D15)
+    reallocateExcluded: OD.reallocateExcluded === true    // CS-2 draft default: On since the 2026-10-12 review (was Off, D15). The engine still reads an absent key as Off, so the UI always sends it.
   };
   const OL = key => F.OPTION_LABELS[key] || {};
   function blankShared() {
@@ -5225,9 +5227,10 @@ abbr[title] { text-decoration: none; cursor: help; }
   function blankValue() { return { years: blankYears(DEFAULTS.windowYears + DEFAULTS.tailYears), sizingStartYear: null, grossMarginPct: DEFAULTS.grossMarginPct, calibrationFactor: DEFAULTS.calibrationFactor, annualValue: null, carryoverConvention: DEFAULTS.carryoverConvention }; }
   function methodDefaults() {
     return {
-      affordable: { value: blankValue(), allocation: DEFAULTS.allocation, totalRoiCutoff: null, minimumBoundary: DEFAULTS.minimumBoundary },
+      // reallocateExcluded is written explicitly (default On since the 2026-10-12 review); the engine reads an absent key as Off.
+      affordable: { value: blankValue(), allocation: DEFAULTS.allocation, totalRoiCutoff: null, minimumBoundary: DEFAULTS.minimumBoundary, reallocateExcluded: DEFAULTS.reallocateExcluded },
       response: { value: blankValue(), allocation: DEFAULTS.allocation, roiBasis: DEFAULTS.roiBasis, cutoff: DEFAULTS.cutoffGross, stoppingRule: DEFAULTS.stoppingRule, scenarioMaxCalls: DEFAULTS.scenarioMaxCalls,
-        minimumBoundary: DEFAULTS.minimumBoundary, cutoffTie: DEFAULTS.cutoffTie, reachAppliesTo: DEFAULTS.reachAppliesTo, maxCallsSource: DEFAULTS.maxCallsSource },
+        minimumBoundary: DEFAULTS.minimumBoundary, cutoffTie: DEFAULTS.cutoffTie, reachAppliesTo: DEFAULTS.reachAppliesTo, maxCallsSource: DEFAULTS.maxCallsSource, reallocateExcluded: DEFAULTS.reallocateExcluded },
       workload: {}
     };
   }
@@ -5299,8 +5302,8 @@ abbr[title] { text-decoration: none; cursor: help; }
   function buildInputs() {
     const ids = new Set(visibleIds());
     const rows = state.segments.map(s => {
-      const r = { segment: s.segment, entities: s.entities, compositeValue: null, reachPct: s.reachPct, maxCalls: null, minCalls: null, plannedCalls: null, customSharePct: null, archetypeMix: null };
-      ['compositeValue', 'maxCalls', 'minCalls', 'plannedCalls', 'customSharePct', 'archetypeMix'].forEach(k => { if (ids.has(k)) r[k] = s[k] == null ? null : clone(s[k]); });
+      const r = { segment: s.segment, entities: s.entities, compositeValue: null, reachPct: s.reachPct, maxCalls: null, minCalls: null, plannedCalls: null, archetypeMix: null };
+      ['compositeValue', 'maxCalls', 'minCalls', 'plannedCalls', 'archetypeMix'].forEach(k => { if (ids.has(k)) r[k] = s[k] == null ? null : clone(s[k]); });
       if (ids.has('archetypeMix')) r.archetype = s.archetypeMix ? null : (s.archetype || null);   // FR-14: single archetype; a mix wins
       if (hasSpecKey(s)) { r.specialty = s.specialty; r.decile = s.decile == null ? null : String(s.decile); }   // CS-3 display keys (identity stays segment)
       return r;
@@ -5482,7 +5485,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
   const rq = t => `<span class="req"> ${esc(String(t).trim())}</span>`;
   const REQ = { 'c-project': 'FR-01, FR-05', 'c-method': 'FR-18, FR-19', 'c-data': 'FR-03, FR-08, FR-43', 'c-incheck': 'FR-04, FR-31, FR-33', 'c-upstream': 'FR-06',
-    'c-shared': 'FR-10, FR-12', 'c-method-a': 'FR-13, FR-14, FR-17', 'c-sizing': 'FR-11, FR-17', 'c-ascheck': 'FR-15, FR-31, FR-33',
+    'c-shared': 'FR-10, FR-12', 'c-method-a': 'FR-13, FR-14, FR-17', 'c-sizing': 'FR-11, FR-17', 'c-cover': 'CS-2', 'c-resfilter': 'CS-3, CS-8',   /* 2026-10-12: were untraced; change-spec IDs from the code comments, PRD FR IDs to confirm */ 'c-ascheck': 'FR-15, FR-31, FR-33',
     'c-calc': 'FR-20, FR-24', 'c-hero': 'FR-22, FR-23, FR-28', 'c-why': 'FR-21, BR-07', 'c-segres': 'FR-21', 'c-trace': 'FR-21, BR-07', 'c-save': 'FR-25, FR-26, FR-36',
     'c-compare': 'FR-27, FR-29', 'c-role': 'PRD §4, BR-06', 'c-review': 'FR-32, FR-34, FR-35, FR-37, BR-06', 'c-export': 'FR-38, FR-39, FR-40, FR-41' };
   const REF_RE = /Spec §|PE-\d+|Decision \d+|decision \d+/;
@@ -5613,7 +5616,14 @@ abbr[title] { text-decoration: none; cursor: help; }
 
   /* ================================================================== 1. PROJECT AND INPUT */
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  const validDate = s => DATE_RE.test(s || '') && !isNaN(new Date(s + 'T00:00:00').getTime()) && new Date(s + 'T00:00:00').toISOString().slice(0, 10) === s;
+  // Calendar-date check without timezone round-trips: parse and compare in UTC so the result is
+  // the same in every browser time zone (local-midnight + toISOString shifted the day east of UTC).
+  const validDate = s => {
+    if (!DATE_RE.test(s || '')) return false;
+    const [y, m, d] = s.split('-').map(Number);
+    const t = new Date(Date.UTC(y, m - 1, d));
+    return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+  };
   function projectErrors() {
     const p = state.project, e = {};
     if (!p.name.trim()) e.name = 'This field is required';
@@ -5625,7 +5635,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     return e;
   }
   function blankRow(label) {
-    return { segment: String(label), archetype: null, entities: null, compositeValue: null, reachPct: null, maxCalls: null, minCalls: null, plannedCalls: null, customSharePct: null, archetypeMix: null };
+    return { segment: String(label), archetype: null, entities: null, compositeValue: null, reachPct: null, maxCalls: null, minCalls: null, plannedCalls: null, archetypeMix: null };
   }
 
   VIEWS.setup = function () {
@@ -6085,7 +6095,7 @@ abbr[title] { text-decoration: none; cursor: help; }
      reference model; an entered Salesforce-impactable % is a check. FC_LABEL names the modes of an older (v0.5) draft only. */
   const FC_LABEL = Object.assign({ 'carryover+other': 'Carryover and other channels', 'carryover+sf': 'Carryover and Salesforce-impactable', 'other+sf': 'Other channels and Salesforce-impactable' }, OL('forecastMode'));
   const FC_COLS = [['carryoverPct', 'c', 'Carryover into year (%)', 'carryover'], ['otherChannelPct', 'o', 'Other channels (%)', 'other'], ['sfPct', 's', null, 'sf']];
-  const FC_HELP = 'Sizing uses carryover and other channels, as in the reference model. Salesforce-impactable is a check: if it doesn\'t match the implied value, the year is flagged.';
+  const FC_HELP = 'Sizing uses carryover and other channels, as in the reference model. Salesforce-impactable is a check in the first year only: if it doesn\'t match the implied value, that year is flagged. From year 2 on, Salesforce impact keeps carrying over from earlier years, so the shares are not expected to add to 100%.';
   const FC_WARN_CODES = ['shares-not-100', 'sf-floored'];
   /* Forecast-inputs wording for the scenario detail and the review (no arithmetic). */
   const fcInputsText = v => { const lm = legacyMode(v); return lm ? `${FC_LABEL[lm]} (older draft)` : `${FC_LABEL[FC_DEFAULT_MODE]}; Salesforce-impactable is a check`; };
@@ -6094,7 +6104,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   function fcWarnText(w, yr, c) {
     if (w.code === 'sf-floored') return `New Salesforce-impactable sales are set to 0 in ${yr} because carried-in sales plus other channels exceed the forecast.`;
     const sum = wv(w, c, 'checkSumPct'), imp = wv(w, c, 'impliedSfPct');
-    if (isNum(sum) && isNum(imp)) return `${yr} adds to ${fmt.pct(+sum.toFixed(4))}; carryover and other channels imply Salesforce-impactable of ${fmt.pct(+imp.toFixed(4))}.`;
+    if (isNum(sum) && isNum(imp)) return `${yr} (first year): Salesforce-impactable and other channels add to ${fmt.pct(+sum.toFixed(4))}, not 100%; other channels imply Salesforce-impactable of ${fmt.pct(+imp.toFixed(4))}.`;
     return `${yr}: the shares do not add to 100%.`;
   }
   function valueBlock() {
@@ -6127,9 +6137,10 @@ abbr[title] { text-decoration: none; cursor: help; }
     const colHead = k => (k === 'sfPct' ? `${IMP_LABEL} (%)` : FC_COLS.find(c => c[0] === k)[2]);
     const yearErr = i => iss[`methodAssumptions.value.years[${i}]`] || FC_COLS.map(c => iss[`methodAssumptions.value.years[${i}].${c[0]}`]).find(Boolean) || '';
     const roCell = (i, k, id, label) => { const d = cohortVal(i, k); return `<td class="num derived-cell${errRows.has(i) ? ' is-err' : ''}" id="${id}" aria-label="${esc(label)}, year ${i + 1}, from the engine${errRows.has(i) ? '; not available: this year has an error' : ''}">${d == null ? '<span class="muted">—</span>' : fmt.pct(+d.toFixed(4))}</td>`; };
-    const addsCell = i => { const d = cohortVal(i, 'checkSumPct'), ws = rowWarn[i];
+    /* 2026-10-12 review: the "Adds to" column is removed. A flagged year's warning icon now sits on its Implied SF % cell. */
+    const impCell = i => { const d = cohortVal(i, 'impliedSfPct'), ws = rowWarn[i];
       const ic = ws ? `<span class="fc-warn" id="vy-${i}-warn" tabindex="0" role="img" data-tip="${esc(ws.join(' '))}" aria-label="Warning: ${esc(ws.join(' '))}">${icon('warn', 14)}</span>` : '';
-      return `<td class="num derived-cell fc-adds${errRows.has(i) ? ' is-err' : ''}${ws ? ' is-warn' : ''}" id="vy-${i}-sum">${ic}${d == null ? '<span class="muted">—</span>' : fmt.pct(+d.toFixed(4))}</td>`; };
+      return `<td class="num derived-cell fc-adds${errRows.has(i) ? ' is-err' : ''}${ws ? ' is-warn' : ''}" id="vy-${i}-imp" aria-label="Implied Salesforce-impactable %, year ${i + 1}, from the engine">${ic}${d == null ? '<span class="muted">—</span>' : fmt.pct(+d.toFixed(4))}</td>`; };
     const older = lm ? `<div class="derived std-method fc-older" id="fc-older"><span class="derived-k">Saved with forecast inputs</span><span class="derived-v">${esc(FC_LABEL[lm])} (older draft)</span>
         <span class="derived-s">Read-only. Carried from a scenario saved before the forecast check; the ${esc(dKey === 'otherChannelPct' ? 'other channels' : 'carryover')} column is derived by the engine for this draft, so the saved result is reproduced.</span></div>` : '';
     const chain = `<div class="grid g3">
@@ -6138,14 +6149,14 @@ abbr[title] { text-decoration: none; cursor: help; }
       </div>
       ${older}
       <p class="hint mt16" id="fc-help">${esc(FC_HELP)}</p>
-      <div class="grid-wrap mt8"><table class="grid-t fc-t" id="fc-table"><thead><tr><th scope="col">Year</th><th scope="col">Role</th><th scope="col" class="num">Brand forecast ($)</th>${FC_COLS.map(c => `<th scope="col" class="num${c[0] === dKey ? ' is-derived' : ''}">${esc(colHead(c[0]))}${c[0] === dKey ? ' <span class="chip chip-outline chip-sm">Derived</span>' : ''}</th>`).join('')}<th scope="col" class="num is-derived">Implied SF %</th><th scope="col" class="num is-derived">Adds to</th></tr></thead>
+      <div class="grid-wrap mt8"><table class="grid-t fc-t" id="fc-table"><thead><tr><th scope="col">Year</th><th scope="col">Role</th><th scope="col" class="num">Brand forecast ($)</th>${FC_COLS.map(c => `<th scope="col" class="num${c[0] === dKey ? ' is-derived' : ''}">${esc(colHead(c[0]))}${c[0] === dKey ? ' <span class="chip chip-outline chip-sm">Derived</span>' : ''}</th>`).join('')}<th scope="col" class="num is-derived">Implied SF %</th></tr></thead>
       <tbody>${years.map((y, i) => { const ye = yearErr(i); return `<tr class="${[ye ? 'has-err' : '', rowWarn[i] ? 'has-warn' : ''].filter(Boolean).join(' ')}"><th scope="row" class="rowh">${esc(yearTxt(i))}</th><td>${i < W ? `Window ${i + 1}` : `Tail ${i - W + 1}`}</td>
         <td class="cell-in num">${numInput({ id: `vy-${i}-f`, bind: `ma.value.years.${i}.forecast`, value: y.forecast, compact: true, big: true, ariaLabel: `Brand forecast, year ${i + 1}`, error: iss[`methodAssumptions.value.years[${i}]`] ? 'x' : '' })}</td>
         ${FC_COLS.map(c => c[0] === dKey
           ? roCell(i, dKey, `vy-${i}-${c[1]}-d`, `${colHead(c[0])}, derived`)
           : `<td class="cell-in num">${numInput({ id: `vy-${i}-${c[1]}`, bind: `ma.value.years.${i}.${c[0]}`, value: y[c[0]], compact: true, suffix: '%', placeholder: c[0] === 'sfPct' ? 'blank' : '', error: iss[`methodAssumptions.value.years[${i}].${c[0]}`] || (isNum(y[c[0]]) && (y[c[0]] < 0 || y[c[0]] > 100)) ? 'x' : '', ariaLabel: `${colHead(c[0]).replace(/ \(%\)$/, '')}, year ${i + 1}${c[0] === 'sfPct' ? ' (check value, blank allowed)' : ''}` })}</td>`).join('')}
-        ${roCell(i, 'impliedSfPct', `vy-${i}-imp`, 'Implied Salesforce-impactable %')}${addsCell(i)}</tr>`; }).join('')}</tbody></table></div>
-      <p class="hint">Carryover: share of the previous year's Salesforce sales retained into this year. Other channels: share of the forecast not attributable to the field force. ${esc(IMP_LABEL)}: optional; the share of the forecast you expect to be new Salesforce-impactable sales, compared with the implied value. Implied SF % and Adds to are calculated by the engine and are read-only.</p>
+        ${impCell(i)}</tr>`; }).join('')}</tbody></table></div>
+      <p class="hint">Carryover: share of the previous year's Salesforce sales retained into this year. Other channels: share of the forecast not attributable to the field force. ${esc(IMP_LABEL)}: optional; the share of the forecast you expect to be new Salesforce-impactable sales, compared with the implied value in the first year. Implied SF % is calculated by the engine and is read-only.</p>
       ${years.some((y, i) => FC_COLS.some(c => c[0] !== dKey && isNum(y[c[0]]) && (y[c[0]] < 0 || y[c[0]] > 100))) ? `<div class="err">Shares must be between 0% and 100%.</div>` : ''}
       ${warnRows.length ? `<div class="soft-warn fc-check" id="fc-check" role="status">${icon('warn', 14)}<div><strong>${warnRows.length === 1 ? '1 forecast year is flagged' : `${warnRows.length} forecast years are flagged`}.</strong> This does not block the calculation; sizing uses carryover and other channels.<ul class="plain fc-check-list">${warnRows.map(i => rowWarn[i].map(t => `<li>${esc(t)}</li>`).join('')).join('')}</ul></div></div>` : ''}
       ${sfHigh.length ? `<div class="soft-warn" id="sf-high" role="status">${icon('warn', 14)}<span>Salesforce-impactable is rarely this high; check the value (${esc(sfHigh.join(', '))}). This does not block the calculation.</span></div>` : ''}`;
@@ -6186,24 +6197,83 @@ abbr[title] { text-decoration: none; cursor: help; }
       <tfoot><tr><th scope="row" class="rowh">Total</th><td class="num">${fmt.int(total)}</td><td></td></tr></tfoot></table></div>
       <p class="hint">Read-only, from the uploaded data. A segment supplied with an archetype mix is spread by its shares. The mix is not editable here.</p></div>`;
   }
+  /* ---------- 2026-10-12 review (Kunal): response curve inputs per archetype, with a live chart beside them ----------
+     gamma (shape) and rho (saturation) are editable; delta cancels under normalization and is not shown. Values default to the
+     engine's reference parameters (decision 9, amended). The chart plots the engine's own normalized curve,
+     Response(x) / Response(X), using FSEngine.archetypesFor and the same formula; nothing here feeds the calculation. */
+  const CURVE_COLORS = { Loyalists: '#020434', Splitters: '#3282FA', Dabblers: '#11A13C', Conservatives: '#C77700' };
+  const refArch = a => (E && E.ARCHETYPES && E.ARCHETYPES[a]) || null;
+  const curveOk = p => p && isNum(p.gamma) && p.gamma > 0 && isNum(p.rho) && p.rho > 0;
+  const curveR = (p, x) => (x <= 0 ? 0 : Math.pow(p.delta * x, p.gamma) / (Math.pow(x, p.gamma) + p.rho));
+  const curveEff = () => (E && E.archetypesFor ? E.archetypesFor(ma() || {}) : (E && E.ARCHETYPES) || {});
+  const curveEdited = a => { const r = refArch(a), u = ((ma() || {}).curveParams || {})[a] || {}; return !!r && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); };
+  const halfAt = p => (curveOk(p) ? Math.pow(p.rho, 1 / p.gamma) : null);
+  function curvePlotSvg() {
+    const X = isNum((ma() || {}).scenarioMaxCalls) && ma().scenarioMaxCalls > 0 ? ma().scenarioMaxCalls : DEFAULTS.scenarioMaxCalls;
+    const A = curveEff(), W0 = 460, H0 = 280, L = 44, R = 14, T = 14, B = 40, w = W0 - L - R, h = H0 - T - B;
+    const sx = x => L + (x / X) * w, sy = y => T + h - Math.max(0, Math.min(1.05, y)) / 1.05 * h;
+    const path = p => { const d = curveR(p, X); if (!(d > 0)) return ''; const pts = []; for (let k = 0; k <= 96; k++) { const x = X * k / 96; pts.push(`${sx(x).toFixed(1)},${sy(curveR(p, x) / d).toFixed(1)}`); } return pts.join(' '); };
+    const xt = []; const stepX = X <= 24 ? 4 : X <= 60 ? 8 : 20; for (let x = 0; x <= X; x += stepX) xt.push(x); if (xt[xt.length - 1] !== X) xt.push(X);
+    const grid = [0, 0.25, 0.5, 0.75, 1].map(y => `<line x1="${L}" x2="${L + w}" y1="${sy(y)}" y2="${sy(y)}" stroke="rgba(2,4,52,0.08)"/><text x="${L - 6}" y="${sy(y) + 4}" text-anchor="end" font-size="11" fill="rgba(2,4,52,0.6)">${y === 0 ? '0' : y.toFixed(2).replace(/0$/, '')}</text>`).join('');
+    const xl = xt.map(x => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${T + h}" y2="${T + h + 4}" stroke="rgba(2,4,52,0.4)"/><text x="${sx(x)}" y="${T + h + 16}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)">${x}</text>`).join('');
+    const names = ARCH_NAMES();
+    const ghosts = names.filter(a => curveEdited(a) && refArch(a)).map(a => `<polyline fill="none" stroke="${CURVE_COLORS[a] || '#020434'}" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.45" points="${path(refArch(a))}"/>`).join('');
+    const lines = names.filter(a => curveOk(A[a])).map(a => `<polyline fill="none" stroke="${CURVE_COLORS[a] || '#020434'}" stroke-width="2.25" points="${path(A[a])}"><title>${esc(a)}: gamma ${fmt.num1(A[a].gamma)}, rho ${fmt.num1(A[a].rho)}</title></polyline>`).join('');
+    const label = `Normalized response by call count, 0 to ${X} calls, for ${names.join(', ')}. ${names.map(a => (curveOk(A[a]) ? `${a}: half of peak response at about ${fmt.num1(halfAt(A[a]))} calls` : `${a}: invalid parameters`)).join('; ')}.`;
+    return `<svg viewBox="0 0 ${W0} ${H0}" role="img" aria-label="${esc(label)}" xmlns="http://www.w3.org/2000/svg">
+      ${grid}<line x1="${L}" x2="${L + w}" y1="${T + h}" y2="${T + h}" stroke="rgba(2,4,52,0.4)"/>${xl}
+      <text x="${L + w / 2}" y="${H0 - 6}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)">Calls per ${esc(grainOne(state.project.grain))} per year</text>
+      <text x="12" y="${T + h / 2}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)" transform="rotate(-90 12 ${T + h / 2})">Response (1 = at ${X} calls)</text>
+      ${ghosts}${lines}</svg>`;
+  }
+  function curveLegend() {
+    const any = ARCH_NAMES().some(curveEdited);
+    return `<div class="curve-legend">${ARCH_NAMES().map(a => `<span><span class="sw" style="background:${CURVE_COLORS[a] || '#020434'}"></span>${esc(a)}</span>`).join('')}${any ? '<span class="muted"><span class="sw sw-dash"></span>Reference curve (before your edit)</span>' : ''}</div>`;
+  }
+  function refreshCurve() {
+    const pl = document.getElementById('curve-plot'); if (pl) pl.innerHTML = curvePlotSvg() + curveLegend();
+    const A = curveEff();
+    ARCH_NAMES().forEach((a, i) => { const c = document.getElementById(`cp-${i}-half`); if (c) c.textContent = curveOk(A[a]) ? fmt.num1(halfAt(A[a])) : '—'; });
+  }
+  function curveBlock() {
+    const iss = assumptionIssues(), A = curveEff(), cp = (ma() || {}).curveParams || {}, ro = readOnly();
+    const anyEdited = ARCH_NAMES().some(curveEdited);
+    const val = (a, k) => { const u = cp[a] || {}; return u[k] !== undefined ? u[k] : (refArch(a) || {})[k]; };
+    const rows = ARCH_NAMES().map((a, i) => {
+      const eg = iss[`methodAssumptions.curveParams.${a}.gamma`], er = iss[`methodAssumptions.curveParams.${a}.rho`], r = refArch(a) || {};
+      return `<tr class="${eg || er ? 'has-err' : ''}"><th scope="row" class="rowh"><span class="sw" style="background:${CURVE_COLORS[a] || '#020434'}"></span>${esc(a)}${curveEdited(a) ? ' <span class="chip chip-outline chip-sm">Edited</span>' : ''}</th>
+        <td class="cell-in num">${numInput({ id: `cp-${i}-g`, bind: `ma.curveParams.${a}.gamma`, value: val(a, 'gamma'), compact: true, error: eg ? 'x' : '', ariaLabel: `${a} shape (gamma), reference ${r.gamma}` })}</td>
+        <td class="cell-in num">${numInput({ id: `cp-${i}-r`, bind: `ma.curveParams.${a}.rho`, value: val(a, 'rho'), compact: true, error: er ? 'x' : '', ariaLabel: `${a} saturation (rho), reference ${r.rho}` })}</td>
+        <td class="num derived-cell" id="cp-${i}-half">${curveOk(A[a]) ? fmt.num1(halfAt(A[a])) : '—'}</td>
+        <td class="num muted">${esc(String(r.gamma))} / ${esc(String(r.rho))}</td></tr>`;
+    }).join('');
+    const errs = ARCH_NAMES().flatMap(a => [iss[`methodAssumptions.curveParams.${a}.gamma`], iss[`methodAssumptions.curveParams.${a}.rho`]]).filter(Boolean);
+    return `<div class="curve-blk" id="curve-params"><div class="row-between"><p class="lbl">Response curve assumptions</p>${anyEdited && !ro ? btn({ label: 'Reset to reference curves', act: 'curveReset', kind: 'text', ic: 'refresh', id: 'curve-reset', small: true }) : ''}</div>
+      <p class="hint">Two values set the shape of each archetype's curve: <strong>shape (gamma)</strong> controls how fast uptake starts (higher means a slower, more S-shaped start) and <strong>saturation (rho)</strong> controls how many calls it takes before the response levels off (higher means later). Edit a value and the chart updates as you type.</p>
+      <div class="curve-split"><div class="grid-wrap"><table class="grid-t curve-t" id="curve-table"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">Shape (γ)</th><th scope="col" class="num">Saturation (ρ)</th><th scope="col" class="num is-derived">Half of peak at (calls)</th><th scope="col" class="num">Reference γ / ρ</th></tr></thead><tbody>${rows}</tbody></table>
+        ${errs.length ? `<div class="err" role="alert"><ul class="plain">${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+        <p class="hint">Half of peak = ρ^(1/γ) calls. Reference values are the standard method's; changing them is recorded in the audit trail and shown on the scenario.</p></div>
+        <div class="curve-plot" id="curve-plot" aria-live="polite">${curvePlotSvg()}${curveLegend()}</div></div></div>`;
+  }
   const CS7_TEXT = 'Response Curve needs behavioural response curves: a curve archetype for each HCP or segment, supplied with the Segmentation & Targeting data. Value-only segmentation is not yet supported for Response Curve, and no default curve is assumed. Use Affordable Coverage for value-only segmentation.';
   const respValueOnly = () => method() === 'response' && state.respSegType === 'value';
   /* CS-2 / CS-5: reallocation is the one remaining methodology choice, shown with the main assumptions (Affordable, Response). */
   function reallocControl() {
     const o = ma();
     return `<div class="realloc-ctl" id="realloc-ctl">${radioGroup({ name: 'realloc', label: 'Value from excluded segments', value: String(o.reallocateExcluded === true), onAct: 'realloc', describe: true,
-      hint: 'Segments the ROI cutoff or the minimum calls exclude carry part of the value pool. Choose what happens to it. FTE Calculation states the shortfall and can preview reallocation before you apply it.',
-      options: [{ value: 'false', isDefault: DEFAULTS.reallocateExcluded === false, label: 'Forfeit it', desc: 'Value allocated to a segment that receives no calls is forfeited; FTE Calculation states the shortfall.' },
-        { value: 'true', isDefault: DEFAULTS.reallocateExcluded === true, label: 'Reallocate it to covered segments', desc: 'The value pool is re-shared over the segments still covered, pass after pass, until no further segment drops out.' }] })}</div>`;
+      hint: 'Segments the ROI cutoff or the minimum calls exclude carry part of the value pool. By default it is re-shared over the covered segments; you can forfeit it instead. FTE Calculation shows what was reallocated and can turn it off.',
+      options: [{ value: 'true', isDefault: DEFAULTS.reallocateExcluded === true, label: 'Reallocate it to covered segments', desc: 'The value pool is re-shared over the segments still covered, pass after pass, until no further segment drops out.' },
+        { value: 'false', isDefault: DEFAULTS.reallocateExcluded === false, label: 'Forfeit it', desc: 'Value allocated to a segment that receives no calls is forfeited; FTE Calculation states the shortfall.' }] })}</div>`;
   }
 
   function methodCard() {
     const m = method(), o = ma(), iss = assumptionIssues();
     if (m === 'workload') return card({ id: 'c-method-a', title: `Method-specific: ${methodLabel(m)}`, body: msg('neutral', 'Workload Buildup needs nothing beyond reach % and planned annual calls per segment, set in the table below. There is no ROI cutoff, minimum or maximum, composite value, curve or allocation.') });
-    const alloc = radioGroup({ name: 'allocation', label: 'Value allocation across segments', value: o.allocation, onAct: 'allocation', describe: true, options: [
-      { value: 'proportional', isDefault: DEFAULTS.allocation === 'proportional', label: F.OPTION_LABELS.allocation.proportional, desc: 'Each segment gets value in line with its composite score.' },
-      { value: 'equal', isDefault: DEFAULTS.allocation === 'equal', label: F.OPTION_LABELS.allocation.equal, desc: 'Every segment with entities and reach gets the same share.' },
-      { value: 'custom', isDefault: DEFAULTS.allocation === 'custom', label: F.OPTION_LABELS.allocation.custom, desc: 'You enter a value share per segment; shares must total 100%.' }] });
+    /* 2026-10-12 review: allocation is fixed (proportional to composite value) for both value methods; shown read-only.
+       An older draft that still carries a retired option is flagged here and blocked by the engine's validation. */
+    const allocErr = iss['methodAssumptions.allocation'];
+    const alloc = `<div class="derived std-method" id="alloc-fixed"><span class="derived-k">Value allocation across segments</span><span class="derived-v">${esc(F.OPTION_LABELS.allocation.proportional)}</span>
+        <span class="derived-s">Standard method. Each segment gets value in line with its composite score.</span></div>${allocErr ? `<div class="err" id="alloc-err">${esc(allocErr)}</div>` : ''}`;
     let specific = '', segType = '';
     if (m === 'affordable') {
       specific = `<div class="grid g3">${numInput({ id: 'a-cut', bind: 'ma.totalRoiCutoff', value: o.totalRoiCutoff, label: 'Total ROI cutoff', error: iss['methodAssumptions.totalRoiCutoff'], hint: 'Value each $1 of field cost must return. 1.5 means $1.50 per $1.' })}</div>`;
@@ -6214,7 +6284,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       segType = `${radioGroup({ name: 'segType', label: 'Segmentation type', value: state.respSegType, onAct: 'segType', describe: true, inline: true, options: [
           { value: 'value', label: 'Value only', desc: 'Deciles by value, no behavioural dimension.' },
           { value: 'behaviour', label: 'Value + behaviour', desc: 'Value deciles plus curve archetypes with their response curves.' }] })}
-        ${respValueOnly() ? msg('warning', esc(CS7_TEXT), { title: 'Response Curve needs behavioural curves', id: 'cs7-msg' }) : archetypeSummary()}<div class="sep"></div>`;
+        ${respValueOnly() ? msg('warning', esc(CS7_TEXT), { title: 'Response Curve needs behavioural curves', id: 'cs7-msg' }) : archetypeSummary() + curveBlock()}<div class="sep"></div>`;
     }
     const realloc = '<div class="sep"></div>' + reallocControl();
     return card({ id: 'c-method-a', title: `Method-specific: ${methodLabel(m)}`, sub: esc(F.METHODS[m].question), body: segType + valueBlock() + '<div class="sep"></div>' + alloc + '<div class="sep"></div>' + specific + realloc });
@@ -6260,6 +6330,9 @@ abbr[title] { text-decoration: none; cursor: help; }
       chk(o.cutoffTie && o.cutoffTie !== DEFAULTS.cutoffTie, OL('cutoffTie')[o.cutoffTie]);
       chk(o.reachAppliesTo && o.reachAppliesTo !== DEFAULTS.reachAppliesTo, OL('reachAppliesTo')[o.reachAppliesTo]);
       chk(o.maxCallsSource && o.maxCallsSource !== DEFAULTS.maxCallsSource, OL('maxCallsSource')[o.maxCallsSource]);
+      /* 2026-10-12: edited response curve parameters are a non-default assumption. */
+      const ce = Object.keys(o.curveParams || {}).filter(a => { const r = E && E.ARCHETYPES && E.ARCHETYPES[a], u = o.curveParams[a] || {}; return r && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); });
+      chk(ce.length, `Curve parameters edited (${ce.join(', ')})`);
     }
     return out;
   }
@@ -6270,8 +6343,6 @@ abbr[title] { text-decoration: none; cursor: help; }
   function sizingCard() {
     const g = state.project.grain, iss = assumptionIssues();
     const fields = visibleFields().filter(f => f.owner === 'sizing');
-    const hasShare = fields.some(f => f.id === 'customSharePct');
-    const shareTot = state.segments.reduce((a, s) => a + (isNum(s.customSharePct) ? s.customSharePct : 0), 0);
     const spec = specOn(), sps = spec ? specialtiesOf() : [], tab = spec ? sizeTab() : null;
     const rowLabel = s => (!spec ? s.segment : tab == null ? `${specLabel(s.specialty)} · ${decileOf(s)}` : decileOf(s));
     const cellErrs = [];
@@ -6281,10 +6352,9 @@ abbr[title] { text-decoration: none; cursor: help; }
       const e = liveCellError(s, f.id) || iss[`segments[${i}].${f.id}`] || '';
       return `<td class="cell-in num">${numInput({ id: `s-${i}-${f.id}`, value: s[f.id], compact: true, suffix: f.unit === 'percent' ? '%' : '', error: e ? 'x' : '', ariaLabel: `${f.label(g)}, segment ${s.segment}` }).replace('<input ', `<input data-seg="${i}" data-field="${f.id}" `)}</td>`;
     }).join('')}</tr>`; }).join('');
-    const foot = hasShare ? `<tfoot><tr><th scope="row" class="rowh">${spec ? 'Total (all specialties)' : 'Total'}</th>${fields.map(f => f.id === 'customSharePct' ? `<td class="num"><span id="share-total" class="${Math.abs(shareTot - 100) > 1e-6 ? 'tot-bad' : 'tot-ok'}">${icon(Math.abs(shareTot - 100) > 1e-6 ? 'warn' : 'check', 14)}${fmt.num(shareTot, 1)}% of 100%</span></td>` : '<td></td>').join('')}</tr></tfoot>` : '';
-    const anyEmpty = state.segments.some(s => fields.some(f => f.id !== 'customSharePct' && !isNum(s[f.id])));
+    const anyEmpty = state.segments.some(s => fields.some(f => !isNum(s[f.id])));
     const tabs = spec ? specTabs('size-tab', 'sizeTab', tab, sps, 'Specialty') : '';   // v0.5: tabs without counts
-    const applyFields = fields.filter(f => f.id !== 'customSharePct');
+    const applyFields = fields;
     const ap = state.ui.specApply || {};
     const apTitle = tab != null ? `Apply to all deciles of ${specLabel(tab)}` : 'Apply to all specialties';
     const apScope = tab != null ? `every decile of ${specLabel(tab)}` : 'every specialty × decile row';
@@ -6296,15 +6366,14 @@ abbr[title] { text-decoration: none; cursor: help; }
     return card({
       id: 'c-sizing', title: 'Segment sizing controls', sub: `${sizingBadge()} Yours to set. Only the controls ${esc(methodLabel(method()))} uses are shown. Reach is a percent (85 means 85%).${spec ? ' Set per specialty × decile row.' : ''}`,
       actions: anyEmpty && SAMPLE && !readOnly() ? btn({ label: 'Fill empty cells with synthetic starter values', act: 'fillStarter', kind: 'text', ic: 'file', id: 'fill-starter' }) : '',
-      body: `${note}${tabs}<div id="size-panel" ${spec ? `role="tabpanel" aria-labelledby="size-tab-${tab == null ? 'all' : sps.indexOf(tab)}"` : ''}>${apply}<div class="grid-wrap"><table class="grid-t sizing-t"><thead><tr><th scope="col">${esc(!spec ? SEG_FIELD('segment').label(g) : tab == null ? 'Specialty · decile' : 'Decile')}</th>${fields.map(f => `<th scope="col" class="num">${esc(f.label(g))}</th>`).join('')}</tr></thead><tbody>${body}</tbody>${foot}</table></div></div>
-        ${hasShare ? `<p class="hint" id="share-hint">Value shares must total exactly 100% before the check can pass.</p>` : ''}
+      body: `${note}${tabs}<div id="size-panel" ${spec ? `role="tabpanel" aria-labelledby="size-tab-${tab == null ? 'all' : sps.indexOf(tab)}"` : ''}>${apply}<div class="grid-wrap"><table class="grid-t sizing-t"><thead><tr><th scope="col">${esc(!spec ? SEG_FIELD('segment').label(g) : tab == null ? 'Specialty · decile' : 'Decile')}</th>${fields.map(f => `<th scope="col" class="num">${esc(f.label(g))}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div></div>
         ${cellErrs.length ? `<div class="err" role="alert"><ul class="plain">${cellErrs.slice(0, 12).map(x => `<li>${esc(x)}</li>`).join('')}${cellErrs.length > 12 ? `<li>…and ${cellErrs.length - 12} more</li>` : ''}</ul></div>` : ''}`
     });
   }
   /* "Apply to all deciles of <specialty>": one audit row with the row count; each written cell drops its AI provenance. */
   function specApplyNow() {
     const tab = sizeTab(); if (!specOn() || readOnly()) return;   // tab null = the All specialties tab (F5): every row
-    const g = state.project.grain, fields = visibleFields().filter(f => f.owner === 'sizing' && f.id !== 'customSharePct');
+    const g = state.project.grain, fields = visibleFields().filter(f => f.owner === 'sizing');
     const vals = {}, bad = [];
     fields.forEach(f => {
       const el = document.getElementById(`ap-${f.id}`), n = parseNum(el ? el.value : (state.ui.specApply || {})[f.id]);
@@ -6367,6 +6436,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     const v = d.value;
     if (typeof v === 'string') return esc(F.OPTION_LABELS.stoppingRule[v] || v);
     if (!isNum(v)) return '—';
+    // ROI cutoffs are ratios. Tested first: the engine label carries the basis text "(value ÷ cost)", which matched the money rule below.
+    if (/ROI cutoff/i.test(d.label)) return fmt.num(v, 2);
     if (/cost|value|pool|forfeit/i.test(d.label)) return Math.abs(v) < 1000 && v !== 0 ? fmt.money2(v) : fmt.money(v);
     if (/average reach|reach %/i.test(d.label)) return fmt.pct(v);
     if (/planned calls/i.test(d.label)) return `${fmt.num(v, 1)} calls`;
@@ -6466,14 +6537,18 @@ abbr[title] { text-decoration: none; cursor: help; }
   function resFilterCard(r) {
     const sps = resSpecs(r);
     if (!sps.length) return '';
-    return card({ id: 'c-resfilter', body: `${specTabs('res-spec', 'resSpec', resSpec(r), sps, 'Show specialty')}
-      <p class="hint mt8">All specialties shows one row per specialty; a specialty tab shows its deciles. The tab also filters Why this result and the calculation trace. Totals, the field size and ROI are model-wide; the ROI cutoff is one value for the whole model.</p>` });
+    /* 2026-10-12 review (Kunal): FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
+       label and hint now say so, and each specialty row in the roll-up links to its tab. */
+    return card({ id: 'c-resfilter', body: `<p class="lbl mb8">FTE by decile: pick a specialty</p>${specTabs('res-spec', 'resSpec', resSpec(r), sps, 'FTE by decile: pick a specialty')}
+      <p class="hint mt8">All specialties shows one row per specialty. Each specialty tab shows its FTE and calls by decile, with the same columns. The tab also filters Why this result and the calculation trace. Totals, the field size and ROI are model-wide; the ROI cutoff is one value for the whole model.</p>` });
   }
   const rollupFor = (r, kind, key) => ((r.rollups && r.rollups[kind]) || []).find(x => x.key === key) || null;
   const callRange = x => (x && isNum(x.avgCallsPerReached) ? `${fmt.num(x.avgCallsPerReached, 1)}${isNum(x.maxCalls) && isNum(x.minCalls) ? ` (${fmt.num1(x.maxCalls)} – ${fmt.num1(x.minCalls)})` : ''}` : '—');
   function specialtyRollupCard(r) {
     const g = state.project.grain, L = F.RESULT_LABELS, t = r.totals, rows = (r.rollups && r.rollups.bySpecialty) || [];
-    const cols = [['Specialty', x => esc(specLabel(x.key)), false], [cap(grainMany(g)), x => fmt.int(x.entities), true], ['Accessible', x => fmt.num1(x.accessible), true], ['Reached', x => fmt.num1(x.reached), true],
+    const spList = resSpecs(r);
+    const spLink = x => { const k = spList.indexOf(x.key); return k < 0 ? esc(specLabel(x.key)) : `<button type="button" class="btn-text roll-link" data-act="resSpec" data-arg="${k}" aria-label="Show ${esc(specLabel(x.key))} by decile">${esc(specLabel(x.key))} <span class="muted">· by decile</span>${icon('chevRight', 14)}</button>`; };
+    const cols = [['Specialty', spLink, false], [cap(grainMany(g)), x => fmt.int(x.entities), true], ['Accessible', x => fmt.num1(x.accessible), true], ['Reached', x => fmt.num1(x.reached), true],
       [rangeLabel(g), callRange, true], ['Total calls', x => fmt.int(x.totalCalls), true], ['Raw FTE', x => fmt.num(x.rawFte, 2), true],
       ...(r.method !== 'workload' ? [['Allocated value', x => fmt.money(x.allocatedValue), true]] : []), ['Field cost', x => (x.fieldCost == null ? 'N/A' : fmt.money(x.fieldCost)), true]];
     /* F10 (v0.5 fix round): the Total row's allocated value is the sum of the engine roll-up rows above it (the engine has no
@@ -6482,7 +6557,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const total = { key: 'Total', entities: t.entities, accessible: t.accessible, reached: t.reached, avgCallsPerReached: t.avgCallsPerReached, maxCalls: t.maxCalls, minCalls: t.minCalls, totalCalls: t.totalCalls, rawFte: t.rawFte,
       allocatedValue: allocs.length ? allocs.reduce((a, v) => a + v, 0) : null, fieldCost: t.fieldCost };
     const foot = cols.map((c, ci) => (ci === 0 ? '<th scope="row" class="rowh">Total</th>' : `<td class="num">${c[1](total)}</td>`)).join('');
-    return card({ id: 'c-segres', title: 'Results by specialty', sub: `One row per specialty, rolled up by the engine from its specialty × decile rows. Open a specialty tab for its deciles.`,
+    return card({ id: 'c-segres', title: 'Results by specialty', sub: `One row per specialty, rolled up by the engine from its specialty × decile rows. Select a specialty (or its tab above) to see its FTE by decile.`,
       body: `<div class="grid-wrap" tabindex="0" role="region" aria-label="Results by specialty"><table class="grid-t res-t roll-t"><thead><tr>${cols.map(c => `<th scope="col" class="${c[2] ? 'num' : ''}">${esc(c[0])}</th>`).join('')}</tr></thead>
         <tbody>${rows.map(x => `<tr>${cols.map((c, ci) => (ci === 0 ? `<th scope="row" class="rowh">${c[1](x)}</th>` : `<td class="num">${c[1](x)}</td>`)).join('')}</tr>`).join('')}</tbody>
         <tfoot><tr>${foot}</tr></tfoot></table></div>
@@ -6500,11 +6575,15 @@ abbr[title] { text-decoration: none; cursor: help; }
     const notes = (r.warnings || []).filter(w => w.code !== 'value-forfeited');
     const method = notes.filter(w => w.code === 'reach-not-applied-to-contribution');
     const other = notes.filter(w => w.code !== 'reach-not-applied-to-contribution');
-    return card({ id: 'c-why', title: 'Why this result', sub: `The assumptions that moved the number most, and the constraint that set calls in each segment.${resSpec(r) != null ? ` Constraints shown for ${esc(specLabel(resSpec(r)))}.` : ''}`,
-      body: `<div class="why"><div><h3 class="sub-h">Top drivers</h3><dl class="drivers">${shownDrivers(r).map(d => `<div class="driver"><dt>${esc(driverLabel(d, r))}</dt><dd><span class="driver-v">${fmtDriver(d)}</span><span class="driver-e">${esc(d.effect)}</span>${DRIVER_NOTE[d.label] ? `<span class="driver-n">${esc(DRIVER_NOTE[d.label])}</span>` : ''}</dd></div>`).join('')}</dl></div>
-        <div><h3 class="sub-h">Binding constraints</h3><ul class="why-list">${bindLines.join('')}${excl}${forfeit}${!bindLines.length && !excl ? '<li>No constraint binds.</li>' : ''}</ul></div></div>
+    /* 2026-10-12 review: not in the first view of the page. Top drivers moved to the Scenario Summary comparison;
+       the binding constraints, value forfeited or reallocated, and the engine notes sit behind a click, like the trace. */
+    const nEx = groups.excluded ? groups.excluded.length : 0;
+    const label = `Why this result: binding constraints${nEx ? ` (${plural(nEx, 'segment')} excluded)` : ''}${resSpec(r) != null ? `, ${specLabel(resSpec(r))}` : ''}`;
+    return card({ id: 'c-why', body: disclosure({ id: 'why', act: 'toggleWhy', open: !!state.ui.whyOpen, label,
+      body: `<p class="hint mb8">The constraint that set calls in each segment, and why excluded segments receive no calls. Top drivers are compared across scenarios on Scenario Summary.</p>
+        <ul class="why-list">${bindLines.join('')}${excl}${forfeit}${!bindLines.length && !excl ? '<li>No constraint binds.</li>' : ''}</ul>
         ${method.map(w => msg('info', esc(w.message), { title: 'Methodology note' })).join('')}
-        ${other.length ? msg('info', `<ul class="plain">${other.map(w => `<li>${esc(w.message)}</li>`).join('')}</ul>`, { title: 'Engine notes' }) : ''}` });
+        ${other.length ? msg('info', `<ul class="plain">${other.map(w => `<li>${esc(w.message)}</li>`).join('')}</ul>`, { title: 'Engine notes' }) : ''}` }) });
   }
   /* ---------- CS-2: value coverage (shortfall) and the optional reallocation, Affordable and Response only */
   const listLabels = (arr, n = 8) => (arr.length > n ? `${arr.slice(0, n).join(', ')} and ${arr.length - n} more` : arr.join(', '));
@@ -6558,7 +6637,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const constraint = (s, i) => (s.excluded ? `<span class="flag">${icon('x', 14)}Excluded: ${esc(exclText(r, s, i))}</span>` : esc(BINDING_LABEL[s.binding] || s.binding));
     /* [key, short header, full label (tooltip), cell, numeric] */
     const cols = [
-      ...(spec ? [['specialty', 'Specialty', SEG_FIELD('specialty') ? SEG_FIELD('specialty').label(g) : 'Specialty', s => esc(specLabel(s.specialty)), false], ['decile', 'Decile', 'Decile', s => esc(decileOf(s)), false]]
+      ...(spec ? [...(cur == null ? [['specialty', 'Specialty', SEG_FIELD('specialty') ? SEG_FIELD('specialty').label(g) : 'Specialty', s => esc(specLabel(s.specialty)), false]] : []), ['decile', 'Decile', 'Decile', s => esc(decileOf(s)), false]]   // a specialty tab drops the repeated Specialty column
         : [['segment', 'Segment', SEG_FIELD('segment').label(g), s => esc(s.segment), false]]),
       ['entities', cap(many), SEG_FIELD('entities').label(g), s => fmt.int(s.entities), true],
       ['accessible', 'Accessible', L.accessible(g), s => fmt.num1(s.accessible), true],
@@ -6567,6 +6646,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       ['final', `Final / ${one}`, L.finalCallsPerEntity(g), s => fmt.num1(s.finalCallsPerEntity), true],
       ['calls', 'Total calls', L.totalCalls(), s => fmt.int(s.totalCalls), true],
       ['raw', 'Raw FTE', L.rawFte(), s => fmt.num(s.rawFte, 2), true],
+      ...(r.method !== 'workload' ? [['alloc', 'Allocated value', 'Allocated value (engine)', s => fmt.money(s.allocatedValue), true]] : []),   // 2026-10-12: same column as the specialty roll-up
       ...(r.method !== 'workload' ? [['roi', 'ROI', L.roi(), s => fmt.roi(s.roi), true]] : []),
       ['split', 'Split', L.planningAllocation(), (s, i) => fmt.int(r.planningAllocation[i]), true],
       ['bind', 'Constraint', 'Binding constraint, or why the segment is excluded', constraint, false]
@@ -6575,9 +6655,9 @@ abbr[title] { text-decoration: none; cursor: help; }
     const idx = r.segments.map((s, i) => i).filter(i => inSpec(r, r.segments[i]));
     const sum = fn => idx.reduce((a, i) => a + (isNum(fn(r.segments[i], i)) ? fn(r.segments[i], i) : 0), 0);
     const ru = cur == null ? null : rollupFor(r, 'bySpecialty', cur);   // CS-8: the specialty subtotal is the engine roll-up
-    const totals = cur == null ? { entities: fmt.int(t.entities), accessible: fmt.num1(t.accessible), reached: fmt.num1(t.reached), calls: fmt.int(t.totalCalls), raw: fmt.num(t.rawFte, 2), split: fmt.int(r.planningAllocation.reduce((a, b) => a + b, 0)) }
-      : ru ? { entities: fmt.int(ru.entities), accessible: fmt.num1(ru.accessible), reached: fmt.num1(ru.reached), calls: fmt.int(ru.totalCalls), raw: fmt.num(ru.rawFte, 2), split: fmt.int(sum((s, i) => r.planningAllocation[i])) }
-      : { entities: fmt.int(sum(s => s.entities)), accessible: fmt.num1(sum(s => s.accessible)), reached: fmt.num1(sum(s => s.reached)), calls: fmt.int(sum(s => s.totalCalls)), raw: fmt.num(sum(s => s.rawFte), 2), split: fmt.int(sum((s, i) => r.planningAllocation[i])) };
+    const totals = cur == null ? { entities: fmt.int(t.entities), accessible: fmt.num1(t.accessible), reached: fmt.num1(t.reached), calls: fmt.int(t.totalCalls), raw: fmt.num(t.rawFte, 2), split: fmt.int(r.planningAllocation.reduce((a, b) => a + b, 0)), alloc: fmt.money(sum(s => s.allocatedValue)) }
+      : ru ? { entities: fmt.int(ru.entities), accessible: fmt.num1(ru.accessible), reached: fmt.num1(ru.reached), calls: fmt.int(ru.totalCalls), raw: fmt.num(ru.rawFte, 2), split: fmt.int(sum((s, i) => r.planningAllocation[i])), alloc: isNum(ru.allocatedValue) ? fmt.money(ru.allocatedValue) : fmt.money(sum(s => s.allocatedValue)) }
+      : { entities: fmt.int(sum(s => s.entities)), accessible: fmt.num1(sum(s => s.accessible)), reached: fmt.num1(sum(s => s.reached)), calls: fmt.int(sum(s => s.totalCalls)), raw: fmt.num(sum(s => s.rawFte), 2), split: fmt.int(sum((s, i) => r.planningAllocation[i])), alloc: fmt.money(sum(s => s.allocatedValue)) };
     const notes = [`<strong>Reached</strong> is the expected number reached (${esc(many)} × reach %), so it can be fractional.`,
       `<strong>${esc(L.planningAllocation())}</strong>: whole FTE per segment that add up to the recommended FTE.`];
     const raOn = !!(t.reallocation && t.reallocation.on);
@@ -6585,8 +6665,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (r.method === 'affordable') notes.push(raOn ? `<strong>Reached</strong> equals <strong>Accessible</strong> unless the segment is excluded; an excluded segment reaches 0 and, with reallocation On, its value is re-spread over the covered segments.`
       : `<strong>Reached</strong> equals <strong>Accessible</strong> unless the segment is excluded; an excluded segment reaches 0 and its value is forfeited, not redistributed.`);
     if (cur != null) notes.push(`Showing the ${plural(idx.length, 'row')} of ${esc(specLabel(cur))}; the last row is their subtotal.`);
-    const nc = spec ? 2 : 1;
-    return card({ id: 'c-segres', title: 'Segment detail', sub: `Every segment behind the total. Hover a column header for its full name.${cur != null ? ` Filtered to ${esc(specLabel(cur))}.` : ''}`,
+    const nc = spec && cur == null ? 2 : 1;
+    return card({ id: 'c-segres', title: cur != null ? `FTE by decile: ${specLabel(cur)}` : 'Segment detail', sub: cur != null ? `Each decile of ${esc(specLabel(cur))}, with its subtotal. Hover a column header for its full name.` : 'Every segment behind the total. Hover a column header for its full name.',
       body: `<div class="grid-wrap" tabindex="0" role="region" aria-label="Segment results table"><table class="grid-t res-t"><thead><tr>${cols.map(c => `<th scope="col" class="${c[4] ? 'num' : ''}"><abbr title="${esc(c[2])}">${esc(c[1])}</abbr></th>`).join('')}</tr></thead>
         <tbody>${idx.map(i => { const s = r.segments[i]; return `<tr class="${s.excluded ? 'is-excluded' : ''}">${cols.map((c, ci) => ci === 0 ? `<th scope="row" class="rowh">${c[3](s, i)}</th>` : `<td class="${c[4] ? 'num' : ''}">${c[3](s, i)}</td>`).join('')}</tr>`; }).join('')}</tbody>
         <tfoot><tr>${cols.map((c, ci) => ci === 0 ? `<th scope="row" class="rowh">${cur == null ? 'Total' : `Subtotal ${esc(specLabel(cur))}`}</th>` : ci < nc ? '<td></td>' : `<td class="${c[4] ? 'num' : ''}">${totals[c[0]] || ''}</td>`).join('')}</tr></tfoot></table></div>
@@ -6617,7 +6697,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     if ((r.errors || []).length) return top + msg('error', `<ul class="plain">${r.errors.map(e => `<li><strong>${esc(issueWhere(e))}:</strong> ${esc(engineErrText(e))}</li>`).join('')}</ul>`, { title: 'The engine could not calculate' });
     const next = current ? card({ body: `<div class="row-between"><span>Happy with this result? Save it as an immutable scenario snapshot to compare and recommend.</span>${btn({ label: 'Go to Scenario Summary', act: 'nav', arg: 'scenarios', kind: 'outline', ic: 'chevRight', id: 'go-scen' })}</div>` }) : '';
     const segCard = resSpecs(r).length && resSpec(r) == null && r.rollups && Array.isArray(r.rollups.bySpecialty) && r.rollups.bySpecialty.length ? specialtyRollupCard(r) : segmentResultCard(r);
-    return `${top}<div class="${current ? '' : 'is-stale'}">${heroCard(r)}${coverageCard(r)}${resFilterCard(r)}${whyCard(r)}${aiWhyCard(r)}${segCard}${traceCard(r)}</div>${next}`;
+    return `${top}<div class="${current ? '' : 'is-stale'}">${heroCard(r)}${coverageCard(r)}${resFilterCard(r)}${aiWhyCard(r)}${segCard}${whyCard(r)}${traceCard(r)}</div>${next}`;
   };
 
   /* ================================================================== 4. SCENARIO SUMMARY */
@@ -6663,6 +6743,61 @@ abbr[title] { text-decoration: none; cursor: help; }
      roll-ups), then average calls per reached HCP by decile per scenario. The earlier long comparison stays under Scenario detail. */
   const capText = sh => (sh.capacityInput && sh.capacityInput.mode === 'derived' ? `${fmt.int(sh.capacityInput.workingDays)} days × ${fmt.num1(sh.capacityInput.callsPerDay)} calls/day` : `${fmt.int(sh.capacity)} calls (entered)`);
   const reallocText = s => (s.inputs.method === 'workload' ? 'Not applicable' : (s.inputs.methodAssumptions || {}).reallocateExcluded === true ? 'Reallocated to covered segments' : 'Forfeited');
+  /* 2026-10-12 review (Melissa): top drivers live here, side by side, so their effect is read across scenarios rather than
+     on one FTE page. Values are the engine's drivers for each snapshot; a value that differs from the first scenario is highlighted. */
+  function driverRows(list) {
+    const keyOf = (d, s) => driverLabel(d, s.result);
+    const keys = [];
+    list.forEach(s => shownDrivers(s.result || {}).forEach(d => { const k = keyOf(d, s); if (!keys.includes(k)) keys.push(k); }));
+    if (!keys.length) return [];
+    const valOf = (s, k) => { const d = shownDrivers(s.result || {}).find(x => keyOf(x, s) === k); return d ? fmtDriver(d) : '—'; };
+    return [['Top drivers', null]].concat(keys.map(k => {
+      const base = valOf(list[0], k);
+      const eff = (shownDrivers(list[0].result || {}).find(x => keyOf(x, list[0]) === k) || {}).effect;
+      return [k, s => { const v = valOf(s, k); return list.length > 1 && v !== base ? `<span class="cmp-diff">${v}</span>` : v; }, eff];
+    }));
+  }
+  /* 2026-10-12 review (Kunal): the comparison shows key assumptions only; "View all" opens every assumption the snapshot
+     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending Kunal's list. */
+  function allAssumptionsHtml(sc) {
+    const i = sc.inputs, sh = i.shared || {}, o = i.methodAssumptions || {}, g = state.project.grain, m = i.method;
+    const row = (k, v) => `<tr><th scope="row" class="rowh">${esc(k)}</th><td>${v}</td></tr>`;
+    const tbl = (h, rows) => rows.length ? `<h3 class="sub-h">${esc(h)}</h3><div class="grid-wrap"><table class="grid-t kv-t"><tbody>${rows.join('')}</tbody></table></div>` : '';
+    const cost = [];
+    cost.push(row('Method', esc(methodLabel(m))), row('Grain', esc(cap(grainMany(i.grain || g)))), row('Capacity', esc(capText(sh))));
+    if (sh.repCost != null) {
+      cost.push(row('Cost mode', esc(F.OPTION_LABELS.costMode[sh.costMode] || sh.costMode)), row('Annual rep cost', fmt.money(sh.repCost)));
+      if (sh.costMode === 'layers' && sh.layers) cost.push(row('Reps per first-line manager', fmt.num1(sh.layers.flmSpan)), row('First-line manager cost', fmt.money(sh.layers.flmCost)), row('First-line managers per second-line manager', fmt.num1(sh.layers.slmSpan)), row('Second-line manager cost', fmt.money(sh.layers.slmCost)));
+      cost.push(row('Annual cost inflation', fmt.pct(sh.inflationPct)), row('Discount rate', fmt.pct(sh.discountRatePct)));
+    }
+    if (sh.horizon) cost.push(row('Horizon', `${fmt.int(sh.horizon.windowYears)}-year window + ${fmt.int(sh.horizon.tailYears)}-year tail`));
+    cost.push(row('FTE rounding', esc(OL('fteRounding')[sh.fteRounding || DEFAULTS.fteRounding] || sh.fteRounding)));
+    const meth = [];
+    if (m !== 'workload') {
+      meth.push(row('Value allocation', esc(F.OPTION_LABELS.allocation[o.allocation] || o.allocation || '—')));
+      if (m === 'affordable') meth.push(row('Total ROI cutoff', fmt.num(o.totalRoiCutoff, 2)));
+      if (m === 'response') meth.push(row('Marginal ROI cutoff', `${fmt.num(o.cutoff, 2)}${o.roiBasis === 'net' ? ' (net)' : ''}`), row('Normalization point', `${fmt.int(o.scenarioMaxCalls)} calls`));
+      meth.push(row('Value from excluded segments', esc(reallocText(sc))));
+      const v = o.value || {};
+      if (isNum(v.annualValue) && !Array.isArray(v.years)) meth.push(row('Annual impactable value', fmt.money(v.annualValue)));
+      else { meth.push(row('Sizing start year', isNum(v.sizingStartYear) ? String(v.sizingStartYear) : '—'), row('Gross margin', fmt.pct(v.grossMarginPct))); }
+    }
+    const nd = nonDefaultList(i);
+    meth.push(row('Methodology', nd.length ? esc(nd.join('; ')) : 'Standard method'));
+    const v = o.value || {};
+    const fc = m !== 'workload' && Array.isArray(v.years) && v.years.length ? `<h3 class="sub-h">Brand forecast and value build-up</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">Year</th><th scope="col" class="num">Brand forecast</th><th scope="col" class="num">Carryover into year</th><th scope="col" class="num">Other channels</th><th scope="col" class="num">${esc(IMP_LABEL)} (entered)</th></tr></thead><tbody>${v.years.map(y => `<tr><th scope="row" class="rowh">${esc(String(y.year))}</th><td class="num">${fmt.money(y.forecast)}</td><td class="num">${fmt.pct(y.carryoverPct)}</td><td class="num">${fmt.pct(y.otherChannelPct)}</td><td class="num">${isNum(y.sfPct) ? fmt.pct(y.sfPct) : '<span class="muted">blank</span>'}</td></tr>`).join('')}</tbody></table></div>` : '';
+    let curves = '';
+    if (m === 'response' && E && E.archetypesFor) {
+      const A = E.archetypesFor(o), R = E.ARCHETYPES;
+      curves = `<h3 class="sub-h">Response curve parameters</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">Shape (γ)</th><th scope="col" class="num">Saturation (ρ)</th><th scope="col" class="num">Reference γ / ρ</th></tr></thead><tbody>${Object.keys(A).map(a => `<tr><th scope="row" class="rowh">${esc(a)}</th><td class="num">${fmt.num1(A[a].gamma)}</td><td class="num">${fmt.num1(A[a].rho)}</td><td class="num muted">${esc(String(R[a].gamma))} / ${esc(String(R[a].rho))}</td></tr>`).join('')}</tbody></table></div>`;
+    }
+    const segs = i.segments || [];
+    const sc2 = m === 'workload' ? [['reachPct', 'Reach %', x => fmt.pct(x)], ['plannedCalls', 'Planned calls', x => fmt.int(x)]]
+      : [['reachPct', 'Reach %', x => fmt.pct(x)], ['maxCalls', 'Maximum calls', x => fmt.int(x)], ['minCalls', 'Minimum calls', x => fmt.int(x)]];
+    const segT = segs.length ? `<h3 class="sub-h">Segment sizing controls</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">${segs.some(x => x.specialty != null) ? 'Specialty · decile' : 'Segment'}</th><th scope="col" class="num">${esc(cap(grainMany(g)))}</th>${sc2.map(c => `<th scope="col" class="num">${esc(c[1])}</th>`).join('')}</tr></thead><tbody>${segs.map(x => `<tr><th scope="row" class="rowh">${esc(x.specialty != null ? `${specLabel(x.specialty)} · ${x.decile != null ? x.decile : x.segment}` : x.segment)}</th><td class="num">${fmt.int(x.entities)}</td>${sc2.map(c => `<td class="num">${c[2](x[c[0]])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '';
+    return `<div class="all-asm"><p class="muted">${esc(sc.id)} · v${sc.version} · saved ${fmtTime(sc.createdAt)}. Read-only: these are the inputs the snapshot was calculated with.</p>
+      ${tbl('Method, capacity and cost', cost)}${tbl('Method assumptions', meth)}${curves}${fc}${segT}</div>`;
+  }
   function compareCard() {
     const list = state.scenarios;
     if (!list.length) return card({ id: 'c-compare', title: 'Scenario comparison', body: `<p class="muted">${aiOn() && !state.result && !method() ? 'No scenarios saved yet. Adopt a candidate above, or set up manually, to save a scenario; each one appears here side by side.' : 'No scenarios saved yet. Save a snapshot above; each one appears here side by side.'}</p>` });
@@ -6678,6 +6813,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       ['ROI cutoff', s => (s.inputs.method === 'affordable' ? fmt.num(opt(s, 'totalRoiCutoff'), 2) + ' total' : s.inputs.method === 'response' ? `${fmt.num(opt(s, 'cutoff'), 2)} ${opt(s, 'roiBasis') === 'net' ? 'net ' : ''}marginal` : 'Not applicable')],
       [`Target ${grainMany(g)} in scope`, s => fmt.int(T(s).entities)],
       ['Value from excluded segments', s => esc(reallocText(s))],
+      ['All assumptions', s => btn({ label: 'View all assumptions', act: 'viewAssumptions', arg: s.id, kind: 'text', ic: 'info', id: `va-${s.id}`, small: true })],
       sec('Sizing outcomes'),
       ['Total reps (recommended FTE)', s => `<strong>${fte(s)}</strong>`],
       [`Reached targets (% reach)`, s => { const t = T(s); return `${fmt.int(t.reached)} <span class="muted">(${t.entities > 0 ? fmt.pct(t.reached / t.entities * 100) : '—'})</span>`; }],
@@ -6685,6 +6821,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       [rangeLabel(g), s => callRange(T(s))],
       ['Targets per rep', s => fmt.num(tpr(s), 1), tprTip(g)],
       [L.roi(), s => `${fmt.roi(T(s).roi)}${T(s).roiBasis === 'net' ? ' <span class="muted">(net)</span>' : ''}`],
+      ...driverRows(list),
       sec('Status'),
       ['Status', s => statusChip(s.status)],
       ['Recommended', s => (s.recommended ? `<span class="rec">${icon('star', 14)}<strong>Recommended</strong></span><span class="cmp-note">“${esc(s.recommendationNote)}” · ${esc(s.recommendedBy)}</span>` : '<span class="muted">No</span>')]
@@ -6852,6 +6989,11 @@ abbr[title] { text-decoration: none; cursor: help; }
         ${x.empty.length ? `<p class="mt8">${icon('warn', 14)} Still to fill: ${esc(x.empty.map(e => `${e.f.label(x.gr)} for ${plural(e.n, 'segment')}`).join('; '))}.</p>` : ''}
         <p class="mt8">Method assumptions switch to the ${esc(methodLabel(to))} set. Both validation checks must be run again.</p>${aiCarryNote(to)}`;
       foot = cancel + btn({ label: 'Change method', act: 'dlgConfirm', kind: 'primary', id: 'dlg-ok' });
+    } else if (d.type === 'assumptions') {
+      const sc = scen(d.id);
+      title = `All assumptions: ${sc ? sc.name : d.id}`; wide = true;
+      body = sc ? allAssumptionsHtml(sc) : '<p class="muted">This scenario is no longer available.</p>';
+      foot = btn({ label: 'Close', act: 'dlgCancel', kind: 'primary', id: 'dlg-ok' });
     } else if (d.type === 'rename') {
       const s = scen(d.id);
       title = 'Rename scenario';
@@ -7003,7 +7145,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const parts = path.split('.');
     let obj = parts[0] === 'project' ? state.project : parts[0] === 'shared' ? state.shared : parts[0] === 'ma' ? ma() : null;
     if (!obj) return;
-    for (let i = 1; i < parts.length - 1; i++) obj = obj[parts[i]];
+    for (let i = 1; i < parts.length - 1; i++) { if (obj[parts[i]] == null && parts[0] === 'ma') obj[parts[i]] = {}; obj = obj[parts[i]]; }   // ma.curveParams.<archetype> may not exist yet
     obj[parts[parts.length - 1]] = value;
   }
   function resizeYears() {
@@ -7220,6 +7362,14 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* ================================================================== actions */
   const toggle = key => () => { state.ui[key] = !state.ui[key]; render(); };
   Object.assign(acts, {
+    curveReset: () => {
+      const o = ma(); if (!o || readOnly()) return;
+      const edited = ARCH_NAMES().filter(curveEdited);
+      delete o.curveParams;
+      aiManualEdit(['methodAssumptions.curveParams']);
+      audit('assumption', `Response curve parameters reset to the reference values${edited.length ? ` (${edited.join(', ')})` : ''}`);
+      focusAfter('curve-params'); render();
+    },
     drawer: () => { state.drawerOpen = !state.drawerOpen; focusAfter('hamburger'); render(); },
     nav: el => {
       const id = el.dataset.arg;
@@ -7259,12 +7409,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     reallocOff: () => { reallocSet(false, 'off'); focusAfter('realloc-preview'); render(); },
     loadSampleMulti: () => aiGuard('new data loaded', () => { loadSampleProject('multi'); render(); }),
     toggleNotes: toggle('notesOpen'), toggleReqCols: toggle('reqColsOpen'), toggleHorizon: toggle('horizonOpen'),
-    toggleAdvanced: toggle('advancedOpen'), toggleTrace: toggle('traceOpen'), toggleCmpDetail: toggle('cmpDetailOpen'),
+    toggleAdvanced: toggle('advancedOpen'), toggleTrace: toggle('traceOpen'), toggleWhy: toggle('whyOpen'), toggleCmpDetail: toggle('cmpDetailOpen'),
     fillStarter: () => {
       const byLabel = {}; mergedSampleRows().forEach(r => { byLabel[r.segment] = r; });
       if (SAMPLE.multiSpecialty) mergedSampleRows('multi').forEach(r => { byLabel[r.segment] = r; });
       let n = 0;
-      state.segments.forEach(s => { const src = byLabel[s.segment] || (hasSpecKey(s) ? byLabel[decileOf(s)] : null); if (!src) return; visibleFields().filter(f => f.owner === 'sizing' && f.id !== 'customSharePct').forEach(f => { if (!isNum(s[f.id]) && isNum(src[f.id])) { s[f.id] = src[f.id]; n++; } }); });
+      state.segments.forEach(s => { const src = byLabel[s.segment] || (hasSpecKey(s) ? byLabel[decileOf(s)] : null); if (!src) return; visibleFields().filter(f => f.owner === 'sizing').forEach(f => { if (!isNum(s[f.id]) && isNum(src[f.id])) { s[f.id] = src[f.id]; n++; } }); });
       audit('assumption', `Filled ${plural(n, 'empty sizing control')} with synthetic starter values`);
       toast(n ? `Filled ${plural(n, 'cell')} with synthetic starter values` : 'No matching segment labels to fill', n ? 'success' : 'warning'); render();
     },
@@ -7273,6 +7423,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     resetName: () => { state.draftName = null; focusAfter('sc-name'); render(); },
     setObjective: el => { if (readOnly()) return; state.objective = el.dataset.arg; focusAfter('sc-objective'); render(); },
     rename: el => openDialog({ type: 'rename', id: el.dataset.arg }),
+    viewAssumptions: el => openDialog({ type: 'assumptions', id: el.dataset.arg }),
     clone: el => { const id = el.dataset.arg; aiGuard('another scenario cloned', () => { cloneScenario(id); render(); window.scrollTo(0, 0); }); },
     recommend: el => openDialog({ type: 'recommend', id: el.dataset.arg }),
     submit: el => {
@@ -7390,7 +7541,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
   const aiLeaf = path => String(path).replace(/\[[^\]]*\]/g, '').split('.').pop();
   function aiValText(path, v) {
-    if (path === REALLOC_PATH) return v === true ? (OL('reallocateExcluded').true || 'On') : (OL('reallocateExcluded').false || 'Off');   // absent = default Off
+    if (path === REALLOC_PATH) return v === true ? (OL('reallocateExcluded').true || 'On') : (OL('reallocateExcluded').false || 'Off');   // engine: absent = Off; UI drafts default On (2026-10-12)
     if (v == null) return 'blank';
     const opts = aiEnumOptions(path);
     if (opts) { const o = opts.find(x => x.value === v); return o ? o.label : String(v); }
@@ -7432,8 +7583,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (!ds) return null;
     const ids = new Set(F.segmentFieldsFor(m, DEFAULTS.allocation, ds.inputGrain).map(f => f.id));
     const segments = ds.segments.map(s => {
-      const r = { segment: s.segment, entities: s.entities, compositeValue: null, reachPct: s.reachPct, maxCalls: null, minCalls: null, plannedCalls: null, customSharePct: null, archetypeMix: null };
-      ['compositeValue', 'maxCalls', 'minCalls', 'plannedCalls', 'customSharePct', 'archetypeMix'].forEach(k => { if (ids.has(k)) r[k] = s[k] == null ? null : clone(s[k]); });
+      const r = { segment: s.segment, entities: s.entities, compositeValue: null, reachPct: s.reachPct, maxCalls: null, minCalls: null, plannedCalls: null, archetypeMix: null };
+      ['compositeValue', 'maxCalls', 'minCalls', 'plannedCalls', 'archetypeMix'].forEach(k => { if (ids.has(k)) r[k] = s[k] == null ? null : clone(s[k]); });
       if (ids.has('archetypeMix')) r.archetype = s.archetypeMix ? null : (s.archetype || null);
       if (hasSpecKey(s)) { r.specialty = s.specialty; r.decile = s.decile == null ? null : String(s.decile); }   // CS-3, as buildInputs (tests/ai/helpers.js)
       return r;
@@ -7682,7 +7833,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     state.project.method = m; state.inputGrain = inp.inputGrain;
     state.segments = ds.segments.map((s, i) => {
       const row = Object.assign(blankRow(s.segment), clone(s)), t = inp.segments[i] || {};
-      ['reachPct', 'maxCalls', 'minCalls', 'plannedCalls', 'customSharePct'].forEach(k => { if (k === 'reachPct' || ids.has(k)) row[k] = t[k] == null ? null : t[k]; });
+      ['reachPct', 'maxCalls', 'minCalls', 'plannedCalls'].forEach(k => { if (k === 'reachPct' || ids.has(k)) row[k] = t[k] == null ? null : t[k]; });
       return row;
     });
     state.entities = ds.entities ? clone(ds.entities) : null;
@@ -8300,16 +8451,11 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
   function onInput(ev) {
     const el = ev.target;
-    if (el.dataset.bind) { setPath(el.dataset.bind, el.dataset.kind === 'num' ? parseNum(el.value) : el.value); return; }
+    if (el.dataset.bind) { setPath(el.dataset.bind, el.dataset.kind === 'num' ? parseNum(el.value) : el.value); if (/^ma\.curveParams\./.test(el.dataset.bind)) refreshCurve(); return; }
     if (el.dataset.apply) { (state.ui.specApply = state.ui.specApply || {})[el.dataset.apply] = el.value; return; }
     if (el.dataset.seg != null) {
       const s = state.segments[+el.dataset.seg], f = el.dataset.field;
       s[f] = el.dataset.kind === 'text' ? el.value : parseNum(el.value);
-      if (f === 'customSharePct') {
-        const tot = state.segments.reduce((a, x) => a + (isNum(x.customSharePct) ? x.customSharePct : 0), 0);
-        const out = document.getElementById('share-total');
-        if (out) { const ok = Math.abs(tot - 100) < 1e-6; out.className = ok ? 'tot-ok' : 'tot-bad'; out.innerHTML = `${icon(ok ? 'check' : 'warn', 14)}${fmt.num(tot, 1)}% of 100%`; }
-      }
       return;
     }
   }
