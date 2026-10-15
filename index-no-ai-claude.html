@@ -810,25 +810,29 @@ abbr[title] { text-decoration: none; cursor: help; }
   // 2026-10-12 review (Kunal): gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
   // values above. Decision 9 is amended: the defaults stay the reference values, but the user can change the curve shape.
   // delta cancels under normalization, so it is not an input. Absent or partial curveParams fall back to the defaults.
-  // fs-engine 1.11.0 (response-curve presets): curveParams may name ANY archetype id (FR-47); the reference set above keeps
-  // its defaults, every other key brings its own gamma and rho (validate() requires them). delta is now an input too
-  // (default 5; a missing or non-positive delta falls back to 5, and validate() rejects it on Custom or non-reference entries).
+  // fs-engine 1.11.0 (response-curve presets): curveParams may name ANY archetype id (FR-47). delta is now an input (default 5).
+  // I-3 A1: an entry WITH provenance (preset or custom), whatever its name, is used exactly as given (delta defaults to 5 only
+  // when absent) and validate() requires delta/gamma/rho > 0 with no upper bound. Only a provenance-less entry on a reference
+  // name keeps the 1.10.0 rules: per-parameter fallback to the reference default (delta: absent or non-positive -> 5).
+  // Every other key brings its own gamma and rho. I-3 A2: a curveParams array is treated as {} (as 1.10.0 did).
   // 'ALL' is the reserved id of the value-only "All HCPs" curve (D3). Key order: reference archetypes, then curveParams order.
   const DEFAULT_DELTA = 5;
   const ALL_ID = 'ALL';
   const curveParamsOf = ma => ((ma && ma.curveParams && typeof ma.curveParams === 'object' && !Array.isArray(ma.curveParams)) ? ma.curveParams : {});
   const deltaOf = (u, d) => (isNum(u.delta) && u.delta > 0 ? u.delta : d);
+  const asGiven = u => Object.freeze({ delta: u.delta === undefined || u.delta === null ? DEFAULT_DELTA : u.delta, gamma: u.gamma, rho: u.rho });
   function archetypesFor(ma) {
-    const cp = curveParamsOf(ma);
+    const cp = curveParamsOf(ma), prov = provenanceOf(ma);
+    const hasProv = n => !!(prov[n] && typeof prov[n] === 'object');
     const out = {};
     ARCH_NAMES.forEach(n => {
-      const d = ARCHETYPES[n], u = cp[n] || {};
-      out[n] = Object.freeze({ delta: deltaOf(u, d.delta), gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
+      const d = ARCHETYPES[n], u = (cp[n] && typeof cp[n] === 'object') ? cp[n] : {};
+      out[n] = hasProv(n) && cp[n] ? asGiven(u)
+        : Object.freeze({ delta: deltaOf(u, d.delta), gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
     });
     Object.keys(cp).forEach(n => {
       if (ARCHETYPES[n]) return;
-      const u = cp[n] || {};
-      out[n] = Object.freeze({ delta: deltaOf(u, DEFAULT_DELTA), gamma: u.gamma, rho: u.rho });
+      out[n] = asGiven((cp[n] && typeof cp[n] === 'object') ? cp[n] : {});
     });
     return Object.freeze(out);
   }
@@ -1402,17 +1406,21 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (!RULES.includes(o.stoppingRule)) E.add('stopping-rule-invalid', 'methodAssumptions.stoppingRule', `Stopping rule must be ${optChoices('stoppingRule')}.`);
       if (!isInt(o.scenarioMaxCalls) || o.scenarioMaxCalls <= 0) E.add('scenario-max-invalid', 'methodAssumptions.scenarioMaxCalls', 'Normalization point must be a whole number of calls above zero.');
       const prov = provenanceOf(ma);
-      if (ma.curveParams !== undefined && ma.curveParams !== null) {
-        if (typeof ma.curveParams !== 'object' || Array.isArray(ma.curveParams)) E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
+      if (ma.curveParams !== undefined && ma.curveParams !== null && !Array.isArray(ma.curveParams)) {   // I-3 A2: an array is {} (1.10.0)
+        if (typeof ma.curveParams !== 'object') E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
         else Object.keys(ma.curveParams).forEach(n => {
           const u = ma.curveParams[n] && typeof ma.curveParams[n] === 'object' ? ma.curveParams[n] : {};
-          const isCustom = !!(prov[n] && prov[n].source === 'custom');
-          if (isCustom || !ARCHETYPES[n]) {
-            // 1.11.0: Custom curves and non-reference archetypes carry their own curve; gamma and rho are required, delta optional (5).
+          const pv = prov[n] && typeof prov[n] === 'object' ? prov[n] : null;
+          if (pv || !ARCHETYPES[n]) {
+            // 1.11.0 / I-3 A1: entries with provenance (any name) and non-reference archetypes carry their own curve.
+            // gamma and rho are required, delta optional (5); every given value must be a number above 0, no upper bound.
+            // Codes: custom provenance or no provenance -> custom-curve-invalid; preset provenance -> the per-parameter codes.
+            const preset = pv && pv.source === 'preset';
+            const codeFor = k => (!preset ? 'custom-curve-invalid' : k === 'gamma' ? 'curve-gamma-invalid' : k === 'rho' ? 'curve-rho-invalid' : 'curve-params-invalid');
             ['delta', 'gamma', 'rho'].forEach(k => {
               const x = u[k];
               if (k === 'delta' && (x === undefined || x === null)) return;
-              if (!isNum(x) || x <= 0) E.add('custom-curve-invalid', `methodAssumptions.curveParams.${n}.${k}`, `${n}: ${EXTRA_LABELS[k]} must be a number above 0.`);
+              if (!isNum(x) || x <= 0) E.add(codeFor(k), `methodAssumptions.curveParams.${n}.${k}`, `${n}: ${EXTRA_LABELS[k]} must be a number above 0.`);
             });
             return;
           }
@@ -1722,7 +1730,8 @@ abbr[title] { text-decoration: none; cursor: help; }
       const customLbl = (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.custom === 'string' && FL.RESPONSE_CURVE_LABELS.custom) || 'Custom';
       const srcText = n => { const pv = prov[n]; if (!pv) return ARCHETYPES[n] ? 'reference default' : 'entered'; return pv.source === 'custom' ? customLbl : `preset ${pv.label || pv.presetId}`; };
       const note = typeof ma.customSourceNote === 'string' && ma.customSourceNote.trim() ? `; custom source note: ${ma.customSourceNote.trim()}` : '';
-      trace.push(step('Curve parameters', used.map(n => `${n === ALL_ID ? 'All (value-only)' : n}: ${srcText(n)}, delta ${fmt(AR[n].delta)}, gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ') + note,
+      const allLbl = (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.all === 'string' && FL.RESPONSE_CURVE_LABELS.all) || 'All HCPs';
+      trace.push(step('Curve parameters', used.map(n => `${n === ALL_ID ? allLbl : n}: ${srcText(n)}, delta ${fmt(AR[n].delta)}, gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ') + note,
         used.length, 'Response curve presets (fs-engine 1.11.0)'));
     }
     (legacy ? ARCH_NAMES : used).forEach(n => trace.push(step(`Normalization denominator, ${n}`,

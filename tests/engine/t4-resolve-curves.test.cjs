@@ -35,6 +35,23 @@ test('T4 custom assignment resolves to the entered values with custom provenance
   assert.deepEqual(r.provenance['Archetype A'], { source: 'custom', presetId: null, label: null });
 });
 
+test('T4 a preset with delta other than 5 passes delta through (resolveCurves, archetypesFor and result.curves)', () => {
+  const presets = PRESETS.concat([{ id: 'synthetic-d3', label: 'Synthetic delta 3', delta: 3, gamma: 1.2, rho: 4 }]);
+  const r = FSEngine.resolveCurves({ 'Archetype A': 'synthetic-d3', Loyalists: 'synthetic-d3' }, presets, {});
+  assert.deepEqual(r.issues, []);
+  assert.deepEqual(r.curveParams['Archetype A'], { delta: 3, gamma: 1.2, rho: 4 });
+  const ma = { curveParams: r.curveParams, curveProvenance: r.provenance };
+  assert.equal(FSEngine.archetypesFor(ma)['Archetype A'].delta, 3);
+  assert.equal(FSEngine.archetypesFor(ma).Loyalists.delta, 3);
+  const i = sampleInputs('single', 'response', mods);
+  i.segments.forEach(s => { s.archetypeMix = { 'Archetype A': 100 }; });
+  Object.assign(i.methodAssumptions, ma);
+  const res = FSEngine.calculate(i);
+  assert.deepEqual(res.errors, []);
+  assert.equal(res.curves['Archetype A'].delta, 3);
+  assert.match(res.trace.find(s => s.step === 'Curve parameters').formula, /Archetype A: preset Synthetic delta 3, delta 3,/);
+});
+
 test('T4 unassigned archetypes are absent', () => {
   const r = FSEngine.resolveCurves({ 'Archetype A': 'slow', 'Archetype B': null, 'Archetype C': '' }, PRESETS, {});
   assert.deepEqual(Object.keys(r.curveParams), ['Archetype A']);
