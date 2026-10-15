@@ -3693,6 +3693,127 @@ abbr[title] { text-decoration: none; cursor: help; }
     return sp && lab.indexOf(sp + SPEC_SEP) === 0 ? lab.slice(sp.length + SPEC_SEP.length) : lab;
   }
   const specOfRow = s => (s && s.specialty !== undefined && s.specialty !== null ? txt(s.specialty) : '');
+
+  /* fs-io 1.1.0 (FR-48, proposed): uptake presets. Reads only methodAssumptions.{curveParams, curveProvenance,
+     customSourceNote}, the scenario's responseCurveConfig (else args.config) and result.curves. A snapshot in the 1.10.0
+     shape (no provenance, reference archetype keys only; the engine's own legacy rule) adds nothing to the existing sheets,
+     so an old draft exports as fs-io 1.0.0 apart from the Configuration sheet. Every label comes from FSFields. */
+  const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const rcLabels = F => F.RESPONSE_CURVE_LABELS || {};
+  const RC_ALL = F => (F.RESPONSE_CURVE_RESERVED && F.RESPONSE_CURVE_RESERVED.all) || 'ALL';
+  const RC_CUSTOM = F => (F.RESPONSE_CURVE_RESERVED && F.RESPONSE_CURVE_RESERVED.custom) || 'custom';
+  const rcArchName = (F, id) => (id === RC_ALL(F) && rcLabels(F).all ? rcLabels(F).all : txt(id));
+  function rcConfigOf(scenario, args) {
+    if (isObj(scenario && scenario.responseCurveConfig)) return scenario.responseCurveConfig;
+    return isObj(args && args.config) ? args.config : null;
+  }
+  function presetLabelOf(cfg, id) {
+    const p = cfg && Array.isArray(cfg.presets) ? cfg.presets.find(x => x && x.id === id) : null;
+    return p && p.label !== undefined && p.label !== null && String(p.label) !== '' ? txt(p.label) : txt(id);
+  }
+  // { rows: [{ id, name, delta, gamma, rho, source, presetId, uptake }], note, anyCustom } or null for a 1.10.0-shaped input
+  function curveRowsOf(c) {
+    const { F, ma, res, method } = c;
+    if (method !== 'response') return null;
+    const cp = isObj(ma.curveParams) ? ma.curveParams : {};
+    const keys = Object.keys(cp);
+    if (!isObj(ma.curveProvenance) && keys.every(k => ARCH.includes(k))) return null;
+    const L = rcLabels(F), SL = L.sourceLabel || {};
+    const prov = isObj(ma.curveProvenance) ? ma.curveProvenance : {};
+    const used = isObj(res && res.curves) ? res.curves : {};
+    const EN = G('FSEngine');
+    const eff = EN && EN.archetypesFor ? EN.archetypesFor(ma) : {};
+    const rows = keys.map(id => {
+      const pv = isObj(prov[id]) ? prov[id] : (isObj(used[id]) && used[id].source ? used[id] : null);
+      const e = isObj(eff[id]) ? eff[id] : (isObj(cp[id]) ? cp[id] : {});
+      const source = pv && (pv.source === 'preset' || pv.source === 'custom') ? pv.source : null;
+      const presetId = source === 'preset' && pv.presetId !== undefined && pv.presetId !== null ? txt(pv.presetId) : '';
+      const uptake = source === 'custom' ? txt(L.custom) : source === 'preset'
+        ? (pv.label !== undefined && pv.label !== null && String(pv.label) !== '' ? txt(pv.label) : presetLabelOf(c.cfg, presetId)) : '';
+      return { id, name: rcArchName(F, id), delta: num(e.delta), gamma: num(e.gamma), rho: num(e.rho), source, presetId, uptake,
+        sourceText: source ? txt(SL[source]) : '' };
+    });
+    const note = typeof ma.customSourceNote === 'string' ? ma.customSourceNote.trim() : '';
+    return { rows, note, anyCustom: rows.some(r => r.source === 'custom') };
+  }
+  /* FR-47 (proposed): the archetypes of a new-shape snapshot, in engine order: reference archetypes present first, then the
+     others in first-seen order (segment archetypeMix keys and archetypes, entity archetypes, then curveParams keys).
+     A 1.10.0-shaped snapshot keeps the fixed reference list, so its sheets stay exactly fs-io 1.0.0. */
+  function archListOf(c) {
+    if (!c.rcRows) return ARCH;
+    const seen = [];
+    const add = a => { if (a !== undefined && a !== null && String(a) !== '' && !seen.includes(String(a))) seen.push(String(a)); };
+    (c.inp.segments || []).forEach(s => { if (!s) return; if (isObj(s.archetypeMix)) Object.keys(s.archetypeMix).forEach(add); add(s.archetype); });
+    (Array.isArray(c.inp.entities) ? c.inp.entities : []).forEach(e => { if (e) add(e.archetype); });
+    c.rcRows.rows.forEach(r => add(r.id));
+    return ARCH.filter(a => seen.includes(a)).concat(seen.filter(a => !ARCH.includes(a)));
+  }
+  function assignmentBlock(c, S) {
+    const R = c.rcRows;
+    if (!R) return;
+    const L = rcLabels(c.F), H = L.exportHeadings || {}, K = L.exportColumns || {};
+    S.skip();
+    S.line([txt(H.assignment)], ST.SECTION);
+    S.line([K.archetype, K.uptake, K.delta, K.gamma, K.rho, K.sourceNote].map(txt), ST.HDR);
+    R.rows.forEach(x => S.line([x.name, x.uptake, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM },
+      x.source === 'custom' ? R.note : '']));
+  }
+  function effectiveCurvesBlock(c, S) {
+    const R = c.rcRows;
+    if (!R) return;
+    const L = rcLabels(c.F), H = L.exportHeadings || {}, K = L.exportColumns || {};
+    S.skip();
+    S.line([txt(H.effectiveCurves)], ST.SECTION);
+    S.line([K.archetype, K.uptake, K.source, K.presetId, K.delta, K.gamma, K.rho].map(txt), ST.HDR);
+    R.rows.forEach(x => S.line([x.name, x.uptake, x.sourceText, x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
+    if (R.anyCustom) S.line([txt(K.sourceNote), R.note]);
+  }
+  // New sheet (fs-io 1.1.0): the configuration snapshot the scenario was sized with
+  function buildConfiguration(c) {
+    const F = c.F, L = rcLabels(F), H = L.exportHeadings || {}, K = L.exportColumns || {};
+    const S = new SheetB(txt((L.exportSheets || {}).configuration));
+    const cfg = c.cfg;
+    S.line([txt(L.configuratorTitle)], ST.TITLE);
+    if (!cfg) { S.line([txt(L.noConfiguration)]); S.minW[0] = 24; return S; }
+    const onOff = v => txt((L.flagState || {})[String(v === true)]);
+    const never = txt(L.neverUpdated);
+    S.skip();
+    S.line([K.field, K.value].map(txt), ST.HDR);
+    S.line([txt(L.configVersion), isNum(cfg.version) ? cfg.version : txt(cfg.version)]);
+    S.line([txt(L.updatedBy), cfg.updatedBy ? txt(cfg.updatedBy) : never]);
+    S.line([txt(L.updatedAt), cfg.updatedAt ? fmtTime(cfg.updatedAt) : never]);
+    S.skip();
+    S.line([txt(H.presets)], ST.SECTION);
+    S.line([K.presetId, K.label, K.description, K.delta, K.gamma, K.rho, K.origin, K.pickerVisible].map(txt), ST.HDR);
+    (Array.isArray(cfg.presets) ? cfg.presets : []).forEach(p => {
+      if (!isObj(p)) return;
+      S.line([txt(p.id), txt(p.label), txt(p.description), { v: num(p.delta), s: ST.NUM }, { v: num(p.gamma), s: ST.NUM }, { v: num(p.rho), s: ST.NUM },
+        txt((L.origin || {})[p.origin] || p.origin), onOff(p.pickerVisible)]);
+    });
+    S.skip();
+    S.line([txt(H.curveLibrary)], ST.SECTION);
+    S.line([K.step, K.label, K.delta, K.gamma, K.rho].map(txt), ST.HDR);
+    (Array.isArray(cfg.curveLibrary) ? cfg.curveLibrary : []).forEach((p, i) => {
+      if (!isObj(p)) return;
+      S.line([{ v: i + 1, s: ST.INT }, txt(p.label), { v: num(p.delta), s: ST.NUM }, { v: num(p.gamma), s: ST.NUM }, { v: num(p.rho), s: ST.NUM }]);
+    });
+    S.skip();
+    S.line([txt(H.defaultAssignment)], ST.SECTION);
+    S.line([K.archetype, K.uptake, K.presetId].map(txt), ST.HDR);
+    const da = isObj(cfg.defaultAssignment) ? cfg.defaultAssignment : {};
+    Object.keys(da).forEach(a => {
+      const v = da[a];
+      S.line([rcArchName(F, a), v === RC_CUSTOM(F) ? txt(L.custom) : presetLabelOf(cfg, v), txt(v)]);
+    });
+    S.skip();
+    S.line([txt(H.flags)], ST.SECTION);
+    S.line([K.flag, K.value].map(txt), ST.HDR);
+    const fl = isObj(cfg.flags) ? cfg.flags : {};
+    Object.keys(fl).forEach(k => S.line([txt((L.flagLabels || {})[k] || k), onOff(fl[k])]));
+    S.minW[0] = 24; S.maxW[2] = 70;
+    return S;
+  }
+
   function buildAssumptions(c, scenario) {
     const { F, inp, method, g, ma, opts, sh } = c;
     const S = new SheetB(SHEETS.assumptions);
@@ -3961,13 +4082,14 @@ abbr[title] { text-decoration: none; cursor: help; }
     } else {
       pv(S.line(['Workload drivers', 'Per segment', 'Reach % and planned annual calls are on the segment rows below; capacity is above.']), 'See the segment rows below');
     }
+    assignmentBlock(c, S);   // fs-io 1.1.0: uptake per archetype (nothing for a 1.10.0-shaped snapshot)
     S.skip();
     S.line(['Segment inputs'], ST.SECTION);
     // specialty / decile are display keys written by this exporter (CS-3), never as fields.js segment columns
     const flds = F.segmentFieldsFor(method, opts.allocation, inp.inputGrain || 'summary').filter(f => f.id !== 'specialty' && f.id !== 'decile');
     const cols = [];
     flds.forEach(f => {
-      if (f.id === 'archetypeMix') ARCH.forEach(a => cols.push({ id: 'mix.' + a, label: `${a} %`, unit: 'mixpct' }));
+      if (f.id === 'archetypeMix') c.mixArch.forEach(a => cols.push({ id: 'mix.' + a, label: `${a} %`, unit: 'mixpct' }));
       else if (f.id === 'segment' && c.spec) cols.push({ id: 'specialty', label: SPEC_LABEL, unit: 'text' }, { id: 'decile', label: DECILE_LABEL, unit: 'text' });
       else cols.push({ id: f.id, label: f.label(g), unit: f.unit });
     });
@@ -4016,7 +4138,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       const ents = num(s.entities), reach = isNum(s.reachPct) ? s.reachPct / 100 : 0;
       const K = ents > 0 && isNum(sg.allocatedValue) ? sg.allocatedValue / ents : 0;
       const groups = [];
-      ARCH.forEach(a => {
+      c.arch.forEach(a => {
         const calls = byStep.get(`Segment ${sg.segment}, ${a}`);
         if (calls === undefined) return;
         const m = mix && isNum(mix[a]) ? mix[a] / 100 : 0;
@@ -4477,25 +4599,26 @@ abbr[title] { text-decoration: none; cursor: help; }
     S.line(['Response Curves'], ST.TITLE);
     S.line(['Response(x) = (δ·x)^γ ÷ (x^γ + ρ); normalized response = Response(x) ÷ Response(X), where X is the normalization point.'], ST.NOTE);
     S.skip();
-    if (!arch) { S.line(['Archetype parameters were not available to the exporter (sizing engine not loaded).']); S.curveRows = null; return S; }
+    if (!arch) { S.line(['Archetype parameters were not available to the exporter (sizing engine not loaded).']); effectiveCurvesBlock(c, S); S.curveRows = null; return S; }
     const X = c.opts.scenarioMaxCalls;
     S.line(['Archetype parameters'], ST.SECTION);
     S.line(['Curve archetype', 'δ (delta)', 'γ (gamma)', 'ρ (rho)', 'Response at X'], ST.HDR);
     const P = {};
-    ARCH.forEach(a => {
+    c.arch.forEach(a => {
       const p = arch[a]; if (!p) return;
       const r = S.r;
       const xr = A.xnorm || String(X);
-      S.line([a, { v: p.delta, s: ST.NUM }, { v: p.gamma, s: ST.NUM }, { v: p.rho, s: ST.NUM },
+      S.line([rcArchName(F, a), { v: p.delta, s: ST.NUM }, { v: p.gamma, s: ST.NUM }, { v: p.rho, s: ST.NUM },
         { v: responseCurve(p, X), s: ST.CURVE, f: `(B${r + 1}*${xr})^C${r + 1}/(${xr}^C${r + 1}+D${r + 1})` }]);
       P[a] = { r, p };
     });
+    effectiveCurvesBlock(c, S);   // fs-io 1.1.0: every archetype in curveParams with its provenance (nothing for a 1.10.0-shaped snapshot)
     S.skip();
     const maxSeg = Math.max(0, ...(inp.segments || []).map(s => (isNum(s.maxCalls) ? s.maxCalls : 0)));
     const top = Math.min(200, Math.max(X, maxSeg));
     S.line([`Normalized response by call count (0 to ${top})`], ST.SECTION);
-    const names = ARCH.filter(a => P[a]);
-    const hr = S.line(['Calls'].concat(names), ST.HDR);
+    const names = c.arch.filter(a => P[a]);
+    const hr = S.line(['Calls'].concat(names.map(a => rcArchName(F, a))), ST.HDR);
     S.freeze = 0;
     for (let x = 0; x <= top; x++) {
       const r = S.r;
@@ -4513,8 +4636,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (mixSegs.length) {
       S.skip();
       S.line([inp.inputGrain === 'entity' ? 'Archetype mix by segment (from entity rows, for information)' : 'Archetype mix by segment (summary input)'], ST.SECTION);
-      S.line((c.spec ? [SPEC_LABEL, DECILE_LABEL] : [segLabel(F, 'segment', c.g)]).concat(ARCH.map(a => `${a} %`)), ST.HDR);
-      mixSegs.forEach(s => { const m = mixOf(s); S.line((c.spec ? [specOfRow(s), txt(decileOf(s))] : [txt(s.segment)]).concat(ARCH.map(a => ({ v: isNum(m[a]) ? m[a] / 100 : 0, s: ST.PCT })))); });
+      S.line((c.spec ? [SPEC_LABEL, DECILE_LABEL] : [segLabel(F, 'segment', c.g)]).concat(c.mixArch.map(a => `${a} %`)), ST.HDR);
+      mixSegs.forEach(s => { const m = mixOf(s); S.line((c.spec ? [specOfRow(s), txt(decileOf(s))] : [txt(s.segment)]).concat(c.mixArch.map(a => ({ v: isNum(m[a]) ? m[a] / 100 : 0, s: ST.PCT })))); });
     }
     S.minW[0] = 16;
     S.curveRows = P;          // parameter rows, used by the live curve-group formulas on Detailed Calculations
@@ -4768,6 +4891,10 @@ abbr[title] { text-decoration: none; cursor: help; }
       add(`Accessible ${F.GRAIN[g].many}`, `Number of ${F.GRAIN[g].many} in the segment times reach % (for example 310 × 90%)`, 'A_s = N_s × r_s%', 'Detailed Calculations');
       add('Response curve', 'Share of maximum response reached after x calls for an archetype', 'Response(x) = (δ·x)^γ ÷ (x^γ + ρ)', 'Response Curves');
       add('Normalized response', 'Response scaled so the normalization point equals 1', 'n(x) = Response(x) ÷ Response(X)', 'Response Curves');
+      if (c.rcRows) {           // fs-io 1.1.0: the uptake preset resolution rule (FSFields wording)
+        const L = rcLabels(F);
+        add(txt((L.exportHeadings || {}).resolutionRule), txt(L.resolutionRule), '', `${SHEETS.curves}, ${txt((L.exportSheets || {}).configuration)}`);
+      }
       add(`Value per ${one}`, `Value pool times the ${one}'s share (${F.OPTION_LABELS.allocation[opts.allocation] || opts.allocation})`, 'K_e = V × share_e', 'Sizing engine, per entity');
       add('Contribution after x calls', `Value per ${one} times the normalized response`, 'C_e(x) = K_e × n(x)', 'Sizing engine, per entity');
       add('Marginal ROI test', opts.roiBasis === 'net' ? 'Net: incremental contribution minus incremental cost, divided by incremental cost, must reach the cutoff' : 'Gross: incremental contribution divided by incremental cost must reach the cutoff',
@@ -5140,6 +5267,10 @@ abbr[title] { text-decoration: none; cursor: help; }
     const focus = scenarios.find(s => s.id === a.focusScenarioId) || scenarios[0];
     const ai = isAiExport(a);                                     // false ⇒ the workbook is exactly the no-AI workbook
     const c = ctxFor(focus, project);
+    c.cfg = rcConfigOf(focus, a);                                 // fs-io 1.1.0: scenario snapshot of the configuration, else args.config
+    c.rcRows = curveRowsOf(c);
+    c.arch = archListOf(c);                                       // FR-47: archetypes from the data (reference list for a 1.10.0-shaped snapshot)
+    c.mixArch = c.arch.filter(x => x !== RC_ALL(c.F));            // 'ALL' is a curve, never a share of a segment
     c.exportedAt = a.exportedAt ? new Date(a.exportedAt) : new Date();
     if (ai) c.prov = makeProv(c.F, focus);
     const A = buildAssumptions(c, focus);
@@ -5150,11 +5281,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (curves) sheets.push(curves);
     sheets.push(buildComparison(scenarios, project, focus.id, ai), buildDetail(scenarios, project, focus.id, ai), buildFormulas(c), buildAudit(scenarios, focus, a.audit, ai));
     if (ai) sheets.push(buildAiProposals(scenarios, project, Array.isArray(a.proposalSets) ? a.proposalSets : []), buildNarrative(scenarios, a.narratives));
+    sheets.push(buildConfiguration(c));                           // fs-io 1.1.0: always last, so every 1.0.0 sheet keeps its position
     return buildXlsx(sheets);
   }
 
   const FSIO = {
-    version: 'fs-io 1.0.0',
+    version: 'fs-io 1.1.0',   // 1.1.0 (2026-10-15, FR-48 proposed): uptake presets in Assumptions, Response Curves and Formula Documentation; new Configuration sheet
     parseFile, detect, applyMapping, exportWorkbook, rankSheets, previewRows,
     exclusionLabel: (method, reason, ctx) => exclusionLabel(fields(), reason, method, ctx),
     pathLabel,
