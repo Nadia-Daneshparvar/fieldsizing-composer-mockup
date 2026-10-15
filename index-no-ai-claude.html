@@ -797,7 +797,7 @@ abbr[title] { text-decoration: none; cursor: help; }
 (function (root) {
   'use strict';
 
-  const VERSION = 'fs-engine 1.10.0';   // 1.10.0 (2026-10-12): curve parameters, proportional-only allocation, first-year check
+  const VERSION = 'fs-engine 1.11.0';   // 1.11.0 (2026-10-15): any curve archetype id, delta input, resolveCurves presets, value-only ALL curve, result.curves
 
   // Locked methodology (decision 9). delta cancels under normalization; kept for traceability.
   const ARCHETYPES = Object.freeze({
@@ -810,14 +810,65 @@ abbr[title] { text-decoration: none; cursor: help; }
   // 2026-10-12 review (Kunal): gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
   // values above. Decision 9 is amended: the defaults stay the reference values, but the user can change the curve shape.
   // delta cancels under normalization, so it is not an input. Absent or partial curveParams fall back to the defaults.
+  // fs-engine 1.11.0 (response-curve presets): curveParams may name ANY archetype id (FR-47); the reference set above keeps
+  // its defaults, every other key brings its own gamma and rho (validate() requires them). delta is now an input too
+  // (default 5; a missing or non-positive delta falls back to 5, and validate() rejects it on Custom or non-reference entries).
+  // 'ALL' is the reserved id of the value-only "All HCPs" curve (D3). Key order: reference archetypes, then curveParams order.
+  const DEFAULT_DELTA = 5;
+  const ALL_ID = 'ALL';
+  const curveParamsOf = ma => ((ma && ma.curveParams && typeof ma.curveParams === 'object' && !Array.isArray(ma.curveParams)) ? ma.curveParams : {});
+  const deltaOf = (u, d) => (isNum(u.delta) && u.delta > 0 ? u.delta : d);
   function archetypesFor(ma) {
-    const cp = (ma && ma.curveParams && typeof ma.curveParams === 'object') ? ma.curveParams : {};
+    const cp = curveParamsOf(ma);
     const out = {};
     ARCH_NAMES.forEach(n => {
       const d = ARCHETYPES[n], u = cp[n] || {};
-      out[n] = Object.freeze({ delta: d.delta, gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
+      out[n] = Object.freeze({ delta: deltaOf(u, d.delta), gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
+    });
+    Object.keys(cp).forEach(n => {
+      if (ARCHETYPES[n]) return;
+      const u = cp[n] || {};
+      out[n] = Object.freeze({ delta: deltaOf(u, DEFAULT_DELTA), gamma: u.gamma, rho: u.rho });
     });
     return Object.freeze(out);
+  }
+  // True when the input uses only the 1.10.0 shape (reference keys, no provenance): trace text then stays exactly 1.10.0.
+  const legacyCurves = ma => !(ma && ma.curveProvenance && typeof ma.curveProvenance === 'object') && Object.keys(curveParamsOf(ma)).every(n => ARCHETYPES[n]);
+  const provenanceOf = ma => ((ma && ma.curveProvenance && typeof ma.curveProvenance === 'object' && !Array.isArray(ma.curveProvenance)) ? ma.curveProvenance : {});
+  const blankArch = a => a === undefined || a === null || a === '';
+
+  // Resolve per-archetype preset assignments into engine curve inputs (pure; I-3).
+  //   assignment: { [archetypeId | 'ALL']: presetId | 'custom' } (unassigned archetypes are absent or blank)
+  //   presets:    [ { id, label, delta, gamma, rho, ... } ]      custom: { [archetypeId]: { delta?, gamma, rho } }
+  // Returns { curveParams, provenance, issues }. A Custom entry is passed through as entered (delta defaults to 5) even when
+  // invalid, so validate() reports it against the archetype; an unknown preset id is left out of curveParams.
+  const CUSTOM_ID = 'custom';
+  function resolveCurves(assignment, presets, custom) {
+    const asg = assignment && typeof assignment === 'object' && !Array.isArray(assignment) ? assignment : {};
+    const list = Array.isArray(presets) ? presets : [];
+    const cus = custom && typeof custom === 'object' && !Array.isArray(custom) ? custom : {};
+    const curveParams = {}, provenance = {}, issues = [];
+    Object.keys(asg).forEach(id => {
+      const a = asg[id];
+      if (blankArch(a)) return;
+      if (a === CUSTOM_ID) {
+        const c = cus[id] && typeof cus[id] === 'object' ? cus[id] : {};
+        const delta = c.delta === undefined || c.delta === null ? DEFAULT_DELTA : c.delta;
+        const gamma = c.gamma === undefined ? null : c.gamma, rho = c.rho === undefined ? null : c.rho;
+        curveParams[id] = { delta, gamma, rho };
+        provenance[id] = { source: 'custom', presetId: null, label: null };
+        [['delta', delta], ['gamma', gamma], ['rho', rho]].forEach(([k, x]) => {
+          if (!isNum(x) || x <= 0) issues.push({ code: 'custom-curve-invalid', path: `responseCurve.custom.${id}.${k}`,
+            message: `${id}: custom curve ${EXTRA_LABELS[k]} must be a number above 0.` });
+        });
+        return;
+      }
+      const p = list.find(x => x && x.id === a);
+      if (!p) { issues.push({ code: 'unknown-preset', path: `responseCurve.assignment.${id}`, message: `${id}: uptake preset "${a}" is not in the configuration.` }); return; }
+      curveParams[id] = { delta: p.delta, gamma: p.gamma, rho: p.rho };
+      provenance[id] = { source: 'preset', presetId: p.id, label: p.label === undefined ? null : p.label };
+    });
+    return { curveParams, provenance, issues };
   }
   const curveParamsEdited = ma => { const a = archetypesFor(ma); return ARCH_NAMES.filter(n => a[n].gamma !== ARCHETYPES[n].gamma || a[n].rho !== ARCHETYPES[n].rho); };
 
@@ -870,13 +921,15 @@ abbr[title] { text-decoration: none; cursor: help; }
     impactablePct: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.impactablePct) || 'Salesforce-impactable %',
     sfPct: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.sfPct) || 'Salesforce-impactable %', forecastMode: 'Forecast inputs',
     reallocateExcluded: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.reallocateExcluded) || 'Reallocate value from excluded segments',
-    specialty: 'Specialty', decile: 'Decile', curveParams: 'Response curve parameters', gamma: 'Curve shape (gamma)', rho: 'Curve saturation (rho)' };
+    specialty: 'Specialty', decile: 'Decile', curveParams: 'Response curve parameters', gamma: 'Curve shape (gamma)', rho: 'Curve saturation (rho)',
+    delta: 'Curve scale (delta)', curveProvenance: 'Response curve source', customSourceNote: 'Custom curve source note' };
   function fieldLabel(path, grain) {
     const ids = String(path || '').replace(/\[[^\]]*\]/g, '').split('.').filter(Boolean);
     const g = FL && FL.GRAIN && FL.GRAIN[grain] ? grain : 'hcp';
     for (let i = ids.length - 1; i >= 0; i--) {
       const id = ids[i];
       if (FL && FL.OPTION_LABELS && ARCHETYPES[id]) continue;
+      if (i > 0 && (ids[i - 1] === 'curveParams' || ids[i - 1] === 'archetypeMix' || ids[i - 1] === 'curveProvenance')) continue;   // archetype id, not a field
       const sf = FL && FL.SEGMENT_FIELDS && FL.SEGMENT_FIELDS.find(f => f.id === id);
       if (sf && !(ids[0] === 'entities' && id === 'segment')) return sf.label(g);
       const mf = FL && FL.MAPPING_FIELDS && ids[0] === 'entities' && FL.MAPPING_FIELDS.find(f => f.id === id || (id === 'id' && f.id === 'entityId'));
@@ -1348,15 +1401,44 @@ abbr[title] { text-decoration: none; cursor: help; }
         E.add('cutoff-invalid', 'methodAssumptions.cutoff', 'Cutoff must be above 0 (gross ratio) or above -1 (net ROI).');
       if (!RULES.includes(o.stoppingRule)) E.add('stopping-rule-invalid', 'methodAssumptions.stoppingRule', `Stopping rule must be ${optChoices('stoppingRule')}.`);
       if (!isInt(o.scenarioMaxCalls) || o.scenarioMaxCalls <= 0) E.add('scenario-max-invalid', 'methodAssumptions.scenarioMaxCalls', 'Normalization point must be a whole number of calls above zero.');
+      const prov = provenanceOf(ma);
       if (ma.curveParams !== undefined && ma.curveParams !== null) {
-        if (typeof ma.curveParams !== 'object') E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
+        if (typeof ma.curveParams !== 'object' || Array.isArray(ma.curveParams)) E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
         else Object.keys(ma.curveParams).forEach(n => {
-          const u = ma.curveParams[n] || {};
-          if (!ARCHETYPES[n]) { E.add('archetype-unknown', `methodAssumptions.curveParams.${n}`, `Unknown curve archetype "${n}"; expected one of ${ARCH_NAMES.join(', ')}.`); return; }
+          const u = ma.curveParams[n] && typeof ma.curveParams[n] === 'object' ? ma.curveParams[n] : {};
+          const isCustom = !!(prov[n] && prov[n].source === 'custom');
+          if (isCustom || !ARCHETYPES[n]) {
+            // 1.11.0: Custom curves and non-reference archetypes carry their own curve; gamma and rho are required, delta optional (5).
+            ['delta', 'gamma', 'rho'].forEach(k => {
+              const x = u[k];
+              if (k === 'delta' && (x === undefined || x === null)) return;
+              if (!isNum(x) || x <= 0) E.add('custom-curve-invalid', `methodAssumptions.curveParams.${n}.${k}`, `${n}: ${EXTRA_LABELS[k]} must be a number above 0.`);
+            });
+            return;
+          }
           if (u.gamma !== undefined && u.gamma !== null && (!isNum(u.gamma) || u.gamma <= 0 || u.gamma > 10)) E.add('curve-gamma-invalid', `methodAssumptions.curveParams.${n}.gamma`, `${n}: shape (gamma) must be above 0 and at most 10.`);
           if (u.rho !== undefined && u.rho !== null && (!isNum(u.rho) || u.rho <= 0 || u.rho > 10000)) E.add('curve-rho-invalid', `methodAssumptions.curveParams.${n}.rho`, `${n}: saturation (rho) must be above 0 and at most 10,000.`);
         });
       }
+      if (ma.curveProvenance !== undefined && ma.curveProvenance !== null) {
+        if (typeof ma.curveProvenance !== 'object' || Array.isArray(ma.curveProvenance)) E.add('curve-params-invalid', 'methodAssumptions.curveProvenance', 'Response curve sources must be given per curve archetype.');
+        else Object.keys(ma.curveProvenance).forEach(n => {
+          const pv = ma.curveProvenance[n];
+          if (!pv || typeof pv !== 'object' || (pv.source !== 'preset' && pv.source !== 'custom'))
+            E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, `${n}: the curve source must be a preset or a custom curve.`);
+        });
+      }
+      const note = ma.customSourceNote;
+      const noteBlank = typeof note !== 'string' || note.trim() === '';
+      if (Object.keys(prov).some(n => prov[n] && prov[n].source === 'custom') && noteBlank)
+        E.add('custom-source-missing', 'methodAssumptions.customSourceNote', 'A custom response curve needs a source note (for example, the marketing mix study it comes from).');
+      else if (note !== undefined && note !== null && typeof note !== 'string')
+        E.add('custom-source-missing', 'methodAssumptions.customSourceNote', `${EXTRA_LABELS.customSourceNote} must be text.`);
+      // Data archetypes resolve against archetypesFor(ma): the reference set plus every curveParams key (I-3).
+      const AR = archetypesFor(ma);
+      const known = a => Object.prototype.hasOwnProperty.call(AR, a);
+      const hasAll = known(ALL_ID);
+      const archList = () => Object.keys(AR).join(', ');
       const ents = inputs.entities;
       if (Array.isArray(ents) && ents.length > 0) {
         const ids = new Set();
@@ -1367,7 +1449,8 @@ abbr[title] { text-decoration: none; cursor: help; }
           if (ids.has(String(e.id))) E.add('entity-duplicate', `${p}.id`, `Entity ID ${e.id} appears more than once.`);
           ids.add(String(e.id));
           if (!seen.has(String(e.segment))) E.add('entity-segment-unknown', `${p}.segment`, `Entity ${e.id} belongs to segment "${e.segment}", which has no segment row.`);
-          if (!ARCHETYPES[e.archetype]) E.add('archetype-unknown', `${p}.archetype`, `Entity ${e.id} has curve archetype "${e.archetype}"; expected one of ${ARCH_NAMES.join(', ')}.`);
+          if (blankArch(e.archetype)) { if (!hasAll) E.add('response-needs-entity-or-mix', `${p}.archetype`, `Entity ${e.id} has no curve archetype, and no "${ALL_ID}" curve is given for value-only rows.`); }
+          else if (!known(e.archetype)) E.add('unknown-archetype', `${p}.archetype`, `Entity ${e.id} has curve archetype "${e.archetype}"; expected one of ${archList()}.`);
           if (e.value === null || e.value === undefined) missingVal++;
           else if (!isNum(e.value) || e.value < 0) E.add('entity-value-invalid', `${p}.value`, `Entity ${e.id} value must be a number of zero or more.`);
         });
@@ -1377,14 +1460,14 @@ abbr[title] { text-decoration: none; cursor: help; }
         segs.forEach((s, i) => {
           if (s && s.archetypeMix && s.archetype !== undefined && s.archetype !== null && s.archetype !== '')
             W.add('archetype-and-mix', `segments[${i}]`, `Segment ${s.segment} has both a single archetype and an archetype mix; the mix is used.`);
-          if (s && !s.archetypeMix && s.archetype !== undefined && s.archetype !== null && s.archetype !== '' && !ARCHETYPES[s.archetype]) {
-            E.add('archetype-unknown', `segments[${i}].archetype`, `Unknown curve archetype "${s.archetype}"; expected one of ${ARCH_NAMES.join(', ')}.`); return;
+          if (s && !s.archetypeMix && s.archetype !== undefined && s.archetype !== null && s.archetype !== '' && !known(s.archetype)) {
+            E.add('unknown-archetype', `segments[${i}].archetype`, `Unknown curve archetype "${s.archetype}"; expected one of ${archList()}.`); return;
           }
-          const mix = effectiveMix(s);
+          const mix = mixFor(s, hasAll);
           if (!mix) { allMix = false; return; }
           let tot = 0;
           Object.keys(mix).forEach(k => {
-            if (!ARCHETYPES[k]) E.add('archetype-unknown', `segments[${i}].archetypeMix.${k}`, `Unknown curve archetype "${k}".`);
+            if (!known(k)) E.add('unknown-archetype', `segments[${i}].archetypeMix.${k}`, `Unknown curve archetype "${k}"; expected one of ${archList()}.`);
             else if (!isNum(mix[k]) || mix[k] < 0) E.add('archetype-mix-invalid', `segments[${i}].archetypeMix.${k}`, 'Archetype mix % must be zero or more.');
             else tot += mix[k];
           });
@@ -1404,6 +1487,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (s && s.archetypeMix) return s.archetypeMix;
     if (s && s.archetype !== undefined && s.archetype !== null && s.archetype !== '') { const m = {}; m[s.archetype] = 100; return m; }
     return null;
+  }
+  // 1.11.0 (D3): a segment with no archetype or mix uses the value-only 'ALL' curve when one is given.
+  function mixFor(s, hasAll) {
+    const m = effectiveMix(s);
+    if (m || !hasAll) return m;
+    const a = {}; a[ALL_ID] = 100; return a;
   }
 
   // ---------- allocation of the value pool to segments (Spec §2.4) ----------
@@ -1437,7 +1526,7 @@ abbr[title] { text-decoration: none; cursor: help; }
                 entitiesPerRep: null, costPerCall: null, fieldCost: null, contribution: null, roi: null, poolValue: null, coveredValue: null,
                 minCalls: null, maxCalls: null, targetsPerRep: null },
       rollups: { bySpecialty: [], byDecile: [] },
-      planningAllocation: [], drivers: [], trace: [], entityResults: null
+      planningAllocation: [], drivers: [], trace: [], entityResults: null, curves: null
     };
   }
 
@@ -1613,20 +1702,43 @@ abbr[title] { text-decoration: none; cursor: help; }
     const cpc = cost.effective, cap = sh.capacity;
     const X = o.scenarioMaxCalls;
     const AR = archetypesFor(ma), edited = curveParamsEdited(ma);
+    const segs = inputs.segments;
+    const ents = Array.isArray(inputs.entities) && inputs.entities.length > 0 ? inputs.entities : null;
+    const hasAll = Object.prototype.hasOwnProperty.call(AR, ALL_ID);
+    const archOf = e => (blankArch(e.archetype) ? ALL_ID : e.archetype);     // value-only entity rows use the ALL curve (D3)
+    // Archetypes used by the data, reference order first (float-exact 1.10.0 sums), then first-seen data order (I-3).
+    const seenArch = [];
+    const see = a => { if (!seenArch.includes(a)) seenArch.push(a); };
+    if (ents) ents.forEach(e => see(archOf(e)));
+    else segs.forEach(sg => { const m = mixFor(sg, hasAll) || {}; Object.keys(m).forEach(k => { if (isNum(m[k]) && m[k] > 0) see(k); }); });
+    const used = ARCH_NAMES.filter(n => seenArch.includes(n)).concat(seenArch.filter(n => !ARCHETYPES[n]));
+    const loopArch = ARCH_NAMES.concat(seenArch.filter(n => !ARCHETYPES[n]));   // summary path: every reference archetype, then the others
+    const legacy = legacyCurves(ma), prov = provenanceOf(ma);
     const denoms = {};
-    ARCH_NAMES.forEach(n => { denoms[n] = responseCurve(AR[n], X); });
+    Object.keys(AR).forEach(n => { denoms[n] = responseCurve(AR[n], X); });
     trace.push(step('Response curve', 'Response(x) = (delta x x)^gamma / (x^gamma + rho); normalized = Response(x) / Response(' + X + ')', null, 'Spec §4.1'));
-    trace.push(step('Curve parameters', edited.length ? `edited for ${edited.join(', ')}; ${ARCH_NAMES.map(n => `${n} gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ')}` : 'reference defaults (decision 9) for every archetype', edited.length, 'Response curve inputs (2026-10-12)'));
-    ARCH_NAMES.forEach(n => trace.push(step(`Normalization denominator, ${n}`,
+    if (legacy) trace.push(step('Curve parameters', edited.length ? `edited for ${edited.join(', ')}; ${ARCH_NAMES.map(n => `${n} gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ')}` : 'reference defaults (decision 9) for every archetype', edited.length, 'Response curve inputs (2026-10-12)'));
+    else {
+      const customLbl = (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.custom === 'string' && FL.RESPONSE_CURVE_LABELS.custom) || 'Custom';
+      const srcText = n => { const pv = prov[n]; if (!pv) return ARCHETYPES[n] ? 'reference default' : 'entered'; return pv.source === 'custom' ? customLbl : `preset ${pv.label || pv.presetId}`; };
+      const note = typeof ma.customSourceNote === 'string' && ma.customSourceNote.trim() ? `; custom source note: ${ma.customSourceNote.trim()}` : '';
+      trace.push(step('Curve parameters', used.map(n => `${n === ALL_ID ? 'All (value-only)' : n}: ${srcText(n)}, delta ${fmt(AR[n].delta)}, gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ') + note,
+        used.length, 'Response curve presets (fs-engine 1.11.0)'));
+    }
+    (legacy ? ARCH_NAMES : used).forEach(n => trace.push(step(`Normalization denominator, ${n}`,
       `(${AR[n].delta} x ${X})^${AR[n].gamma} / (${X}^${AR[n].gamma} + ${AR[n].rho}) = ${fmt(denoms[n])}`, denoms[n], 'Spec §4.2')));
+    const curves = {};
+    used.forEach(n => {
+      const pv = prov[n] || null;
+      curves[n] = { delta: AR[n].delta, gamma: AR[n].gamma, rho: AR[n].rho, source: pv ? pv.source : null,
+        presetId: pv && pv.presetId !== undefined ? pv.presetId : null, label: pv && pv.label !== undefined ? pv.label : null };
+    });
     const eq = roiEquivalent(o.roiBasis, o.cutoff);
     trace.push(step('Marginal ROI test', `${optLabel('roiBasis', o.roiBasis)}: ${o.roiBasis === 'gross' ? 'incremental contribution / incremental cost' : '(incremental contribution - incremental cost) / incremental cost'} ${o.cutoffTie === 'exclude' ? '>' : '>='} ${fmt(o.cutoff)} (gross ratio ${fmt(eq.gross)}, net ROI ${fmt(eq.net)})`, o.cutoff, 'Decision 4 / PE-03'));
     trace.push(step('Stopping rule', optLabel('stoppingRule', o.stoppingRule), null, 'Decision 5'));
     trace.push(step('Response options', `${optLabel('minimumBoundary', o.minimumBoundary)}; ${optLabel('cutoffTie', o.cutoffTie)}; ${optLabel('reachAppliesTo', o.reachAppliesTo)}`, null, 'Contract v1.3 options'));
-    const segs = inputs.segments;
     const segIndex = new Map(segs.map((s, i) => [String(s.segment), i]));
     const acc = segs.map(s => ({ entities: 0, accessible: 0, reached: 0, calls: 0, contribution: 0, alloc: 0, bind: {}, reasons: {} }));
-    const ents = Array.isArray(inputs.entities) && inputs.entities.length > 0 ? inputs.entities : null;
     let entityResults = null;
     const tally = (a, key, w) => { a[key] = (a[key] || 0) + w; };
     if (ents) {
@@ -1648,7 +1760,8 @@ abbr[title] { text-decoration: none; cursor: help; }
         else K = totE > 0 ? iv.pool * (v / totE) : 0;            // proportional to entity value (only allocation since 2026-10-12)
         const eCap = o.maxCallsSource === 'entityAttribute' && e.attrs && isInt(e.attrs.maxCalls) ? e.attrs.maxCalls : s.maxCalls;
         if (eCap !== s.maxCalls) capOverrides++;
-        const r = selectCalls(K, AR[e.archetype], denoms[e.archetype], cpc, o, eCap, s.minCalls);
+        const ea = archOf(e);
+        const r = selectCalls(K, AR[ea], denoms[ea], cpc, o, eCap, s.minCalls);
         const reach = s.reachPct / 100;
         const reachedWeight = r.calls > 0 ? reach : 0;
         const a = acc[i];
@@ -1660,7 +1773,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       trace.push(step('Maximum calls source', o.maxCallsSource === 'entityAttribute' ? `${optLabel('maxCallsSource', o.maxCallsSource)}, else the segment maximum (${capOverrides} entities use their own cap); normalization point stays ${X} calls` : optLabel('maxCallsSource', o.maxCallsSource), capOverrides, 'Response option'));
     } else {
       trace.push(upstreamStep(segs, true));
-      trace.push(step('Curve archetypes supplied', segs.map(sg => `segment ${sg.segment}: ${Object.entries(effectiveMix(sg) || {}).filter(([, m]) => m > 0).map(([a, m]) => `${a} ${fmt(m)}%`).join(', ')}`).join('; '), null, 'Upstream input'));
+      trace.push(step('Curve archetypes supplied', segs.map(sg => `segment ${sg.segment}: ${Object.entries(mixFor(sg, hasAll) || {}).filter(([, m]) => m > 0).map(([a, m]) => `${a} ${fmt(m)}%`).join(', ')}`).join('; '), null, 'Upstream input'));
       const shares = allocShares(segs, o.allocation, segs.map(s => (isNum(s.compositeValue) ? s.compositeValue : 0)), restrict);
       trace.push(step('Allocation', `${optLabel('allocation', o.allocation)}: segment value = pool ${fmt(iv.pool)} x share; split into one group per archetype by mix${restrictNote(restrict, segs.length)}`, null, 'Decision 7 (approximation)'));
       segs.forEach((s, i) => {
@@ -1668,8 +1781,8 @@ abbr[title] { text-decoration: none; cursor: help; }
         const reach = s.reachPct / 100;
         const a = acc[i];
         a.entities = s.entities; a.accessible = s.entities * reach; a.alloc = segAlloc;
-        ARCH_NAMES.forEach(name => {
-          const mixE = effectiveMix(s);
+        loopArch.forEach(name => {
+          const mixE = mixFor(s, hasAll);
           const m = (mixE && isNum(mixE[name]) ? mixE[name] : 0) / 100;
           if (m <= 0 || s.entities <= 0) return;
           const n = s.entities * m;
@@ -1716,7 +1829,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       { label: 'Value pool', value: iv.pool, effect: poolEffect(iv.calibrationFactor) },
       { label: 'Normalization point (calls)', value: X, effect: 'Response curves are scaled so contribution at this call count equals allocated value' }
     ];
-    return { rows, totals, drivers, entityResults };
+    return { rows, totals, drivers, entityResults, curves };
   }
 
   // ---------- Workload Buildup (Spec §5) ----------
@@ -1891,12 +2004,12 @@ abbr[title] { text-decoration: none; cursor: help; }
       errors: [], warnings,
       segments: out.rows, totals: out.totals, rollups: rollups(out.rows, out.totals.costPerCall),
       planningAllocation: planningAllocation(out.rows.map(r => r.rawFte), out.totals.recommendedFte),
-      drivers: out.drivers, trace, entityResults: out.entityResults || null
+      drivers: out.drivers, trace, entityResults: out.entityResults || null, curves: out.curves || null
     };
   }
 
   const FSEngine = Object.freeze({
-    version: VERSION, ARCHETYPES, archetypesFor,
+    version: VERSION, ARCHETYPES, archetypesFor, resolveCurves,
     validate, calculate, resolveCapacity, costPerCall, impactableValue, planningAllocation, roiEquivalent,
     _internal: Object.freeze({ responseCurve, selectCalls, stableStringify, fnv1a })
   });
