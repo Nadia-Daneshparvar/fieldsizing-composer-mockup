@@ -26,8 +26,10 @@ function chainValue(v, OD) {
   return { years, sizingStartYear: v.sizingStartYear, grossMarginPct: v.grossMarginPct, calibrationFactor: v.calibrationFactor, carryoverConvention: v.carryoverConvention || OD.carryoverConvention };
 }
 
-/* kind: 'single' (10-decile sample), 'multi' (specialty x decile sample) or 'entity' (single sample with the synthetic
-   HCP entity rows, Response Curve only). Returns the inputs object the UI would send to FSEngine.calculate. */
+/* kind: 'single' (10-decile sample) or 'multi' (specialty x decile sample): returns the inputs object the UI sends to
+   FSEngine.calculate after loading that sample. kind 'entity' is an ENGINE-ONLY regression fixture (Response Curve): the
+   single-sample segment rows paired with the synthetic HCP entity rows. The UI reaches entity grain only through the
+   import wizard, which builds segments from the file, so this case is not a UI-equivalent payload. */
 function sampleInputs(kind, method, mods) {
   const { FSFields: F, FSSample: S } = mods || load();
   const OD = F.OPTION_DEFAULTS;
