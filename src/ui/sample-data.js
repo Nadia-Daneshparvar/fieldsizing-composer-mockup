@@ -178,6 +178,76 @@
     segments: multiSegments
   };
 
+  /* Uptake presets sample (D6): 10 deciles whose archetype mix uses the configuration's archetypes Prospects / Trialists /
+     Early Leaders, so it loads with their default uptake presets (Slow / Moderate / Steep). Every name and number is invented. */
+  const PRESET_ARCHS = ['Prospects', 'Trialists', 'Early Leaders'];
+  const PRESET_COUNTS = [240, 370, 510, 660, 820, 1010, 1240, 1530, 1910, 2400];
+  const PRESET_VALUE_PER = [1620, 1080, 790, 590, 440, 320, 230, 160, 100, 55];
+  const PRESET_MIXES = [
+    [20, 35, 45], [22, 36, 42], [25, 36, 39], [28, 37, 35], [32, 36, 32],
+    [36, 35, 29], [40, 34, 26], [45, 32, 23], [50, 30, 20], [56, 27, 17]
+  ].map(m => { const o = {}; PRESET_ARCHS.forEach((a, k) => { o[a] = m[k]; }); return o; });
+  function presetSegments(method) {
+    return DECILES.map((d, i) => ({
+      segment: d,
+      entities: PRESET_COUNTS[i],
+      compositeValue: method === 'workload' ? null : PRESET_COUNTS[i] * PRESET_VALUE_PER[i],
+      reachPct: REACH[i],
+      maxCalls: method === 'workload' ? null : MAX_CALLS[i],
+      minCalls: method === 'workload' ? null : MIN_CALLS[i],
+      plannedCalls: method === 'workload' ? PLANNED[i] : null,
+      archetypeMix: method === 'response' ? Object.assign({}, PRESET_MIXES[i]) : null
+    }));
+  }
+  function presetEntities() {
+    const r = rng(20270707);
+    const out = [];
+    DECILES.forEach((d, i) => {
+      const mix = PRESET_MIXES[i];
+      for (let k = 0; k < ENTITY_PER_DECILE; k++) {
+        const p = r() * 100;
+        let acc = 0, arche = PRESET_ARCHS[PRESET_ARCHS.length - 1];
+        for (const a of PRESET_ARCHS) { acc += mix[a]; if (p < acc) { arche = a; break; } }
+        const v = Math.round(PRESET_VALUE_PER[i] * (0.8 + r() * 0.4));
+        out.push({ id: 'HCP-' + String(20001 + out.length), segment: d, value: v, archetype: arche, attrs: { specialty: ['Neurology', 'Primary care'][out.length % 2] } });
+      }
+    });
+    return out;
+  }
+  const presetSample = {
+    project: Object.assign({}, project, {
+      name: 'Kelvorin FY2027 field size (uptake presets)',
+      brand: 'Kelvorin',
+      dataNotes: {
+        assumptions: 'Decile assignment, composite scores and archetype shares are taken as delivered by Segmentation & Targeting (synthetic extract).',
+        limitations: project.dataNotes.limitations,
+        exclusions: project.dataNotes.exclusions
+      }
+    }),
+    archetypes: PRESET_ARCHS.slice(),
+    segments: presetSegments,
+    entities: presetEntities
+  };
+
+  /* Per-sample response-curve seeds (I-2): { assignment, custom, customSourceNote }. The existing samples keep today's reference
+     curves as Custom (D6), so their outputs are unchanged; the uptake presets sample starts empty and the app fills it from
+     the configuration's default assignment. Reference values come from the engine when it is loaded, else from this constant. */
+  const REFERENCE_CURVES = { Loyalists: { delta: 5, gamma: 1.6, rho: 15 }, Splitters: { delta: 5, gamma: 1.1, rho: 2.5 },
+    Dabblers: { delta: 5, gamma: 1.2, rho: 4.5 }, Conservatives: { delta: 5, gamma: 2.0, rho: 50 } };
+  const engineRef = (root && root.FSEngine) || (typeof globalThis !== 'undefined' && globalThis.FSEngine) || null;
+  const REF_SOURCE = (engineRef && engineRef.ARCHETYPES) || REFERENCE_CURVES;
+  const SAMPLE_CURVE_NOTE = 'Synthetic sample reference curves';
+  function responseCurveSeed(kind) {
+    if (kind === 'presets') return { assignment: {}, custom: {}, customSourceNote: '' };
+    const assignment = {}, custom = {};
+    Object.keys(REF_SOURCE).forEach(a => {
+      const c = REF_SOURCE[a];
+      assignment[a] = 'custom';
+      custom[a] = { delta: c.delta, gamma: c.gamma, rho: c.rho };
+    });
+    return { assignment, custom, customSourceNote: SAMPLE_CURVE_NOTE };
+  }
+
   const FSSample = {
     project,
     users: {
@@ -197,6 +267,8 @@
     },
     segments,
     multiSpecialty,
+    presetSample,
+    responseCurveSeed,
     entities,
     shared: () => JSON.parse(JSON.stringify(shared)),
     // CS-5 (v0.5): the UI enters capacity as working days x calls per day (200 x 8 = the 1,600 calls above). Kept apart from

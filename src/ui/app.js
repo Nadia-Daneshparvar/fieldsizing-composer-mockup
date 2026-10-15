@@ -554,7 +554,7 @@
     const pe = showErr ? projectErrors() : {};
     const p = state.project;
     const intro = !state.project.name && !state.segments.length
-      ? msg('neutral', 'New to field sizing? Load a complete synthetic project to see how every step fits together. You can change anything afterwards.', { actions: btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'outline', ic: 'file', id: 'load-sample' }) + (SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : '') })
+      ? msg('neutral', 'New to field sizing? Load a complete synthetic project to see how every step fits together. You can change anything afterwards.', { actions: btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'outline', ic: 'file', id: 'load-sample' }) + (SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : '') + presetSampleBtn() })
       : '';
     const projectCard = card({
       id: 'c-project', step: 1, title: 'Project', sub: 'Who and what this sizing is for. The grain applies to every step and label.',
@@ -2077,7 +2077,7 @@
     
   }
   function mergedSampleRows(kind) {
-    const src = kind === 'multi' && SAMPLE.multiSpecialty ? SAMPLE.multiSpecialty : SAMPLE;
+    const src = kind === 'multi' && SAMPLE.multiSpecialty ? SAMPLE.multiSpecialty : kind === 'presets' && SAMPLE.presetSample ? SAMPLE.presetSample : SAMPLE;
     const a = src.segments('affordable'), w = src.segments('workload'), r = src.segments('response');
     return a.map((s, i) => Object.assign({}, s, { plannedCalls: w[i].plannedCalls, archetypeMix: r[i].archetypeMix }));
   }
@@ -2092,7 +2092,11 @@
     if (state.segments.length) openDialog({ type: 'replace', then: () => { then(); render(); } });
     else { then(); render(); }
   }
+  /* Uptake presets sample (P2): third Step 1 button; strings from FSFields.RESPONSE_CURVE_LABELS (RCL). */
+  const RCL = (F && F.RESPONSE_CURVE_LABELS) || {};
+  const presetSampleBtn = () => (SAMPLE && SAMPLE.presetSample ? btn({ label: RCL.samplePresetsButton, act: 'loadSamplePresets', kind: 'text', ic: 'file', id: 'load-sample-presets' }) : '');
   function loadSampleProject(kind) {
+    if (kind === 'presets' && SAMPLE.presetSample) return loadPresetSampleProject();
     const multi = kind === 'multi' && !!SAMPLE.multiSpecialty;
     const p = clone(multi ? SAMPLE.multiSpecialty.project : SAMPLE.project);
     state.project = Object.assign(blankProject(), p, { method: 'affordable' });
@@ -2105,6 +2109,26 @@
     setManualData(mergedSampleRows(multi ? 'multi' : null), multi ? 'Synthetic multi-specialty sample data' : 'Synthetic sample data');
     audit('project', multi ? `Synthetic multi-specialty sample project loaded (${plural(specialtiesOf().length, 'specialty', 'specialties')} × 10 deciles)` : 'Synthetic sample project loaded');
     toast(multi ? 'Synthetic multi-specialty sample loaded. Run the inputs check to continue.' : 'Synthetic sample project loaded. Run the inputs check to continue.', 'success');
+  }
+  /* Loads like the multi sample. Bridge until P4: the response store gets curveParams/curveProvenance resolved from the
+     configuration's default assignment, so the sample runs end to end. */
+  function loadPresetSampleProject() {
+    const PS = SAMPLE.presetSample;
+    state.project = Object.assign(blankProject(), clone(PS.project), { method: 'affordable' });
+    state.shared = Object.assign(blankShared(), SAMPLE.shared()); state.repCostByMode = {};
+    if (SAMPLE.capacityInput) { state.shared.capacityInput = SAMPLE.capacityInput(); state.shared.capacity = null; }
+    aiClearStores();
+    const md = methodDefaults();
+    METHOD_IDS.forEach(m => { state.methodStore[m] = Object.assign(md[m], SAMPLE.methodAssumptions(m)); if (state.methodStore[m].value) state.methodStore[m].value = Object.assign(blankValue(), SAMPLE.methodAssumptions(m).value); });
+    const cfg = F.RESPONSE_CURVE_CONFIG;
+    if (E && E.resolveCurves && cfg && state.methodStore.response) {
+      const rc = E.resolveCurves(cfg.defaultAssignment, cfg.presets, {});
+      state.methodStore.response.curveParams = rc.curveParams; state.methodStore.response.curveProvenance = rc.provenance;
+    }
+    state.ui.sizeSpec = null; state.ui.resSpec = null; state.ui.dataSpec = null; state.respSegType = 'behaviour';
+    setManualData(mergedSampleRows('presets'), RCL.samplePresetsData);
+    audit('project', RCL.samplePresetsAudit);
+    toast(RCL.samplePresetsToast, 'success');
   }
   function startImport(buf, fileName) {
     const m = method();
@@ -2317,6 +2341,7 @@
     reallocKeep: () => { const r = state.result; if (r && state.ui.reallocPreview) audit('assumption', `${REALLOC_LABEL}: kept Off after preview`); state.ui.reallocPreview = null; state.ui.reallocKept = r ? r.inputsHash : null; focusAfter('cover-line'); render(); },
     reallocOff: () => { reallocSet(false, 'off'); focusAfter('realloc-preview'); render(); },
     loadSampleMulti: () => aiGuard('new data loaded', () => { loadSampleProject('multi'); render(); }),
+    loadSamplePresets: () => aiGuard('new data loaded', () => { loadSampleProject('presets'); render(); }),
     toggleNotes: toggle('notesOpen'), toggleReqCols: toggle('reqColsOpen'), toggleHorizon: toggle('horizonOpen'),
     toggleAdvanced: toggle('advancedOpen'), toggleTrace: toggle('traceOpen'), toggleWhy: toggle('whyOpen'), toggleCmpDetail: toggle('cmpDetailOpen'),
     fillStarter: () => {
@@ -3000,7 +3025,7 @@
     if (state.ai.entry === 'manual' || state.segments.length || state.project.method) return '';
     return `<div class="ai-entry">${card({ id: 'c-ai-entry', cls: 'ai-card', title: `${GLYPH} Start with AI assist`, sub: `${simTag()} Describe the engagement, bring in the segment data and confirm it. The simulated assistant proposes 3–4 candidate scenarios, each calculated by the engine. Nothing enters your model until you review and adopt it.`,
         body: `<div>${btn({ label: 'Start with AI assist', act: 'aiStart', kind: 'primary', id: 'ai-start', ic: 'chevRight', reason: readOnly() ? 'Read-only role' : '' })}</div>` })}
-      ${card({ id: 'c-manual-entry', title: 'Set up manually', sub: 'Name the engagement, choose the sizing method and bring in the data yourself, step by step. New to field sizing? Load a complete synthetic project to see how every step fits together.', body: `<div class="row-actions">${btn({ label: 'Set up manually', act: 'aiManual', kind: 'outline', id: 'ai-manual' })}${btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'text', ic: 'file', id: 'load-sample' })}${SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : ''}</div>` })}</div>`;
+      ${card({ id: 'c-manual-entry', title: 'Set up manually', sub: 'Name the engagement, choose the sizing method and bring in the data yourself, step by step. New to field sizing? Load a complete synthetic project to see how every step fits together.', body: `<div class="row-actions">${btn({ label: 'Set up manually', act: 'aiManual', kind: 'outline', id: 'ai-manual' })}${btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'text', ic: 'file', id: 'load-sample' })}${SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : ''}${presetSampleBtn()}</div>` })}</div>`;
   }
   const AI_STEPS = [['brief', 'Brief'], ['data', 'Data'], ['confirm', 'Confirm data'], ['build', 'Candidates']];
   function aiIntakeView() {

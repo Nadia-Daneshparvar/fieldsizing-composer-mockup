@@ -131,6 +131,148 @@
   };
   // capacityInput 'derived' (v0.5, CS-5) is a UI default only: the engine still treats an absent capacityInput as direct.
 
+  /* ---- Response curve uptake presets (FR-44..FR-48, proposed) ----
+     RESPONSE_CURVE_CONFIG is the frozen seed; the app deep-clones it into project state and the administrator edits the clone.
+     Preset values are the Beghou reference presets. Picker order is slow, moderate, steep, baseline: Baseline is not the
+     middle option. The curve library is an administrator reference only and never appears in the analyst picker. */
+  const deepFreeze = o => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.values(o).forEach(deepFreeze); Object.freeze(o); } return o; };
+  const RESPONSE_CURVE_RESERVED = deepFreeze({ custom: 'custom', all: 'ALL' });
+  const PRESET_SEEDS = [
+    { id: 'slow', label: 'Slow uptake', description: 'Response builds slowly: it takes more calls before the response levels off.', delta: 5, gamma: 1.5, rho: 11 },
+    { id: 'moderate', label: 'Moderate uptake', description: 'Response builds at a steady pace and levels off after a moderate number of calls.', delta: 5, gamma: 1.1, rho: 3.5 },
+    { id: 'steep', label: 'Steep uptake', description: 'Response builds quickly: the first few calls do most of the work.', delta: 5, gamma: 0.8, rho: 1.5 },
+    { id: 'baseline', label: 'Baseline', description: 'A general reference curve for when no archetype-specific uptake is known.', delta: 5, gamma: 1.3, rho: 7 }
+  ];
+  const presetSeed = p => Object.assign({}, p, { origin: 'beghou-reference', pickerVisible: true });
+  const CURVE_LIBRARY_STEPS = [
+    ['+4 Max', 0.2], ['+3.5', 0.4], ['+3 Higher', 0.6], ['+2.5', 0.8], ['+2 Very High', 1.1], ['+1.5', 1.4], ['+1 High', 1.8], ['+0.5', 2.3],
+    ['Base', 3.0], ['−0.5', 3.9], ['−1 Low', 5.0], ['−1.5', 6.5], ['−2 Very Low', 9.0], ['−2.5', 15], ['−3 Lower', 30], ['−3.5', 80], ['−4 Linear', 100000]
+  ];
+  const RESPONSE_CURVE_CONFIG = deepFreeze({
+    version: 1,
+    updatedBy: null,
+    updatedAt: null,
+    presets: PRESET_SEEDS.map(presetSeed),
+    curveLibrary: CURVE_LIBRARY_STEPS.map(([label, rho], i) => ({ id: `lib-${String(i + 1).padStart(2, '0')}`, label, delta: 5, gamma: 1, rho })),
+    defaultAssignment: { Prospects: 'slow', Trialists: 'moderate', 'Early Leaders': 'steep' },
+    flags: { allowValueOnlyResponse: false, allowCustomCurve: true }
+  });
+  // "Reset to Beghou reference" restores exactly these (a separate frozen copy, so edits to the config never reach it).
+  const REFERENCE_PRESETS = deepFreeze(PRESET_SEEDS.map(presetSeed));
+
+  // Every user-facing string for the response curve presets feature. `custom` and `all` are read by the engine trace.
+  const RESPONSE_CURVE_LABELS = deepFreeze({
+    // Picker and Model Assumptions (Step 2)
+    custom: 'Custom (from marketing mix)',
+    all: 'All HCPs',
+    uptake: 'Uptake',
+    uptakeByArchetype: 'Uptake by archetype',
+    uptakeHint: 'Choose how quickly each archetype responds to calls. The curve values behind each choice are shown under "Advanced: curve details".',
+    chooseUptake: 'Choose uptake',
+    notAssigned: 'Not chosen',
+    notAssignedHelp: 'No uptake is assumed: choose one for every archetype before checking assumptions.',
+    archetype: 'Curve archetype',
+    preset: 'Uptake preset',
+    advanced: 'Advanced: curve details',
+    advancedHint: 'Read-only. The curve values each uptake choice uses.',
+    halfOfPeak: 'Half of peak (calls)',
+    delta: 'Peak (δ)',
+    gamma: 'Shape (γ)',
+    rho: 'Saturation (ρ)',
+    customHint: 'Enter the curve values from your marketing-mix analysis. All three must be numbers above 0.',
+    customNotAllowed: 'Custom curves are turned off in the configuration.',
+    sourceNote: 'Source note for custom curves',
+    sourceNoteHelp: 'Say where the custom curve values come from, for example the marketing-mix study and its date.',
+    sourceNoteRequired: 'Enter a source note for the custom curves.',
+    curveLegendPreset: (archetype, preset) => `${archetype}: ${preset}`,
+    valueOnlyRowHint: 'The data has no archetypes, so one uptake applies to all HCPs.',
+    // Administrator configurator
+    configuratorTitle: 'Response curve configuration',
+    configuratorOpen: 'Response curve configuration',
+    configuratorHint: 'Set the uptake presets analysts can choose, the default uptake per archetype, and the feature flags. Every change is recorded in the audit trail.',
+    configuratorClose: 'Close',
+    configuratorAdminOnly: 'Only an Administrator can open the response curve configuration.',
+    tabs: { presets: 'Presets', defaultAssignment: 'Default assignment', curveLibrary: 'Curve library', flags: 'Flags' },
+    presetLabel: 'Label',
+    presetDescription: 'Description',
+    presetLabelRequired: 'Enter a label for the preset.',
+    presetValueInvalid: param => `${param} must be a number above 0.`,
+    pickerVisible: 'Show in the uptake picker',
+    origin: { 'beghou-reference': 'Beghou reference', client: 'Edited for this project' },
+    originLabel: 'Origin',
+    resetReference: 'Reset to Beghou reference',
+    copyIntoPreset: 'Copy into preset…',
+    copyTarget: 'Copy into which preset?',
+    referencePresets: 'Beghou reference presets',
+    referenceLibrary: 'Beghou reference curve library',
+    libraryStep: 'Step',
+    libraryHint: 'Reference only. Analysts never see this list; copy a step into a preset to make it available.',
+    defaultAssignmentHint: 'The uptake each archetype starts with when it appears in the data. An archetype not listed here starts with no uptake chosen.',
+    addArchetype: 'Add archetype',
+    archetypeName: 'Archetype name',
+    removeArchetype: name => `Remove ${name}`,
+    archetypeNameRequired: 'Enter an archetype name.',
+    archetypeNameDuplicate: 'That archetype is already listed.',
+    flagLabels: {
+      allowValueOnlyResponse: 'Allow value-only data for the response curve method',
+      allowCustomCurve: 'Allow custom curves'
+    },
+    flagHelp: {
+      allowValueOnlyResponse: 'Off by default: value-only data stays blocked for the response curve method. When on, data without archetypes uses one "All HCPs" uptake.',
+      allowCustomCurve: 'When on, analysts can enter their own curve values from a marketing-mix analysis, with a source note.'
+    },
+    flagState: { true: 'On', false: 'Off' },
+    configVersion: 'Configuration version',
+    configVersionText: v => `Configuration version ${v}`,
+    updatedBy: 'Last changed by',
+    updatedAt: 'Last changed',
+    neverUpdated: 'Not changed since setup',
+    // Audit wording
+    audit: {
+      configEdit: (field, from, to) => `${field}: ${from} → ${to}`,
+      configReset: 'Presets reset to Beghou reference',
+      libraryCopy: (step, preset) => `Curve library step ${step} copied into ${preset}`,
+      uptakeChange: (archetype, from, to) => `Uptake for ${archetype}: ${from} → ${to}`,
+      customValue: (archetype, param, from, to) => `Custom curve for ${archetype}, ${param}: ${from} → ${to}`,
+      sourceNote: (from, to) => `Custom curve source note: ${from} → ${to}`,
+      blank: '(blank)'
+    },
+    // Validation messages (keyed by the engine issue code)
+    validation: {
+      'custom-curve-invalid': (archetype, param) => `${archetype}: the custom curve ${param} must be a number above 0.`,
+      'custom-source-missing': () => 'Enter a source note for the custom curves.',
+      'unknown-archetype': archetype => `${archetype} has no uptake in this project. Choose an uptake for it.`,
+      'unknown-preset': (archetype, preset) => `${archetype}: the uptake "${preset}" is no longer in the configuration. Choose another.`,
+      unassigned: archetype => `Choose an uptake for ${archetype}.`
+    },
+    // Scenario summary and export
+    summaryHeading: 'Uptake by archetype',
+    customWithNote: note => `Custom (from marketing mix); source: ${note}`,
+    exportSheets: { configuration: 'Configuration' },
+    noConfiguration: 'No configuration recorded',
+    exportHeadings: {
+      assignment: 'Uptake by archetype',
+      effectiveCurves: 'Effective curve values',
+      presets: 'Presets',
+      curveLibrary: 'Curve library',
+      defaultAssignment: 'Default assignment',
+      flags: 'Flags',
+      resolutionRule: 'Uptake preset resolution'
+    },
+    exportColumns: {
+      archetype: 'Curve archetype', uptake: 'Uptake', source: 'Source', presetId: 'Preset id', label: 'Label', description: 'Description',
+      delta: 'Peak (δ)', gamma: 'Shape (γ)', rho: 'Saturation (ρ)', halfOfPeak: 'Half of peak (calls)', origin: 'Origin',
+      pickerVisible: 'Shown in picker', sourceNote: 'Source note', step: 'Step', flag: 'Flag', value: 'Value', field: 'Field'
+    },
+    resolutionRule: 'Each archetype uses the curve values of its chosen uptake preset from the configuration. Custom uses the values entered from a marketing-mix analysis, with a required source note. An archetype with no uptake chosen is not sized and is reported as a validation error.',
+    sourceLabel: { preset: 'Preset', custom: 'Custom (from marketing mix)' },
+    // Step 1: third synthetic sample
+    samplePresetsButton: 'Load uptake presets synthetic sample',
+    samplePresetsData: 'Synthetic uptake presets sample data',
+    samplePresetsAudit: 'Synthetic uptake presets sample project loaded (3 archetypes with default uptake)',
+    samplePresetsToast: 'Synthetic uptake presets sample loaded. Run the inputs check to continue.'
+  });
+
   const MAPPING_FIELDS = [
     { id: 'entityId', label: 'Entity ID', aliases: ['id', 'entity id', 'hcp id', 'npi', 'account id', 'site id', 'customer id'] },
     { id: 'segment', label: 'Decile / segment', aliases: ['decile', 'segment', 'tier', 'final decile', 'site decile'] },
@@ -148,6 +290,12 @@
       id: `archetypeMix.${a}`, label: `${a} share %`, optional: true, grain: 'summary', methods: ['response'],
       aliases: [`${a.toLowerCase()} %`, `${a.toLowerCase()} share`, `% ${a.toLowerCase()}`, a.toLowerCase()] }))
   ];
+  // FR-47 (proposed): share columns for the configuration's archetypes too, read from the config (no new literals), de-duplicated.
+  Object.keys(RESPONSE_CURVE_CONFIG.defaultAssignment).forEach(a => {
+    if (MAPPING_FIELDS.some(f => f.id === `archetypeMix.${a}`)) return;
+    MAPPING_FIELDS.push({ id: `archetypeMix.${a}`, label: `${a} share %`, optional: true, grain: 'summary', methods: ['response'],
+      aliases: [`${a.toLowerCase()} %`, `${a.toLowerCase()} share`, `% ${a.toLowerCase()}`, a.toLowerCase()] });
+  });
 
   function requiredMapping(method, inputGrain) {
     if (inputGrain === 'entity') {
@@ -168,7 +316,8 @@
       (!f.summaryOnly || inputGrain === 'summary'));
   }
 
-  const FSFields = { GRAIN, METHODS, SEGMENT_FIELDS, RESULT_LABELS, ASSUMPTION_LABELS, OPTION_LABELS, OPTION_DEFAULTS, BINDING_LABELS, EXCLUSION_LABELS, ROLE_LABELS, MAPPING_FIELDS, requiredMapping, segmentFieldsFor };
+  const FSFields = { GRAIN, METHODS, SEGMENT_FIELDS, RESULT_LABELS, ASSUMPTION_LABELS, OPTION_LABELS, OPTION_DEFAULTS, BINDING_LABELS, EXCLUSION_LABELS, ROLE_LABELS, MAPPING_FIELDS, requiredMapping, segmentFieldsFor,
+    RESPONSE_CURVE_CONFIG, REFERENCE_PRESETS, RESPONSE_CURVE_LABELS, RESPONSE_CURVE_RESERVED };
   if (typeof module !== 'undefined') module.exports = FSFields; else root.FSFields = FSFields;
 })(this);
 
