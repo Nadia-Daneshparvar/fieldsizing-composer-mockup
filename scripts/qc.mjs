@@ -31,7 +31,7 @@ const SCOPES = {
   P0: ['.gitignore', '.claude/agents/**', 'src/**', 'build.mjs', 'scripts/qc.mjs', 'tests/**', 'README.md'],
   P1: ['src/engine/**', 'tests/engine/**', TARGET],
   P2: ['src/contract/**', 'src/ui/sample-data.js', 'src/ui/app.js', 'tests/contract/**', TARGET],
-  P3: ['src/ui/app.js', 'src/ui/configurator.js', 'build.mjs', 'tests/ui/**', 'tests/contract/**', TARGET],
+  P3: ['src/ui/app.js', 'src/ui/configurator.js', 'build.mjs', 'tests/ui/**', 'tests/contract/**', 'src/contract/fields.js', 'src/shell/head.html', TARGET],   // D-RUN-07: fix cycle may add labels and one CSS rule
   P4: ['src/ui/app.js', 'src/ui/configurator.js', 'tests/ui/**', TARGET],
   P5: ['src/io/**', 'tests/io/**', TARGET],
   P6: ['docs/requirements/**', 'docs/handoff/**'],
