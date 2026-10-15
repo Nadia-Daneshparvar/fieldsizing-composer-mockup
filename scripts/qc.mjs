@@ -1,5 +1,6 @@
 // Deterministic QC gate (G1) for the Field Sizing mock-up. Dependency-free; Node 18+.
-// Usage: node scripts/qc.mjs --phase P0..P7 [--base <git ref>] [--pr-body <file>] [--only Q1,Q2,...]
+// Usage: node scripts/qc.mjs --phase P0..P7 [--base <git ref>] [--pr-body <file>] [--only Q1,Q2,...] [--require-browser]
+//   --base is required from P1 on (the phase base commit); P0 defaults to merge-base with origin/main.
 //   Q1 tests · Q2 reproducible build · Q3 write scope · Q4 confidentiality · Q5 self-contained HTML
 //   Q6 version strings · Q7 requirement tags · Q8 headless console check (skipped when no browser is configured)
 // Local-only inputs (never committed) live in .private/: qc-banned.txt (Q4 token list), qc-env.json (Q8 browser paths).
@@ -19,8 +20,10 @@ const PHASE = arg('--phase', 'P0');
 const PN = Number(String(PHASE).replace(/^P/i, ''));
 if (!Number.isInteger(PN) || PN < 0 || PN > 7) { console.error('--phase must be P0..P7'); process.exit(2); }
 let BASE = arg('--base', null);
+if (!BASE && PN >= 1) { console.error('--base <phase base commit> is required from P1 on'); process.exit(2); }
 if (!BASE) { try { BASE = execFileSync('git', ['merge-base', 'origin/main', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim(); } catch (e) { BASE = null; } }
 const PR_BODY = arg('--pr-body', null);
+const REQUIRE_BROWSER = args.includes('--require-browser');
 const ONLY = arg('--only', null) ? arg('--only').split(',') : null;
 
 /* Lane write scopes (plan §0.3). index-no-ai-claude.html is the committed build output of src/, so every code lane may change it. */
@@ -186,7 +189,7 @@ async function q8() {
   const env = fs.existsSync(envFile) ? JSON.parse(fs.readFileSync(envFile, 'utf8')) : {};
   const pwc = process.env.FS_PLAYWRIGHT_CORE || env.playwrightCore;
   const chrome = process.env.FS_CHROME || env.chrome;
-  if (!pwc || !chrome || !fs.existsSync(pwc) || !fs.existsSync(chrome)) { record('Q8', true, 'no headless browser configured', true); return; }
+  if (!pwc || !chrome || !fs.existsSync(pwc) || !fs.existsSync(chrome)) { record('Q8', !REQUIRE_BROWSER, 'no headless browser configured', !REQUIRE_BROWSER); return; }
   const { chromium } = createRequire(import.meta.url)(pwc);
   const libs = process.env.FS_LD_LIBRARY_PATH || env.ldLibraryPath;
   const browser = await chromium.launch({ executablePath: chrome, headless: true, env: Object.assign({}, process.env, libs ? { LD_LIBRARY_PATH: libs } : {}) });
@@ -229,7 +232,7 @@ async function q8() {
           const txt = document.getElementById('main') ? document.getElementById('main').innerText : '';
           return { cur: !!cur, fte: /Recommended FTE/i.test(txt), stale: !!document.getElementById('calc-stale') };
         });
-        if (!done.cur || !done.fte) throw new Error(`${tag}: no result rendered (${JSON.stringify(done)})`);
+        if (!done.cur || !done.fte || done.stale) throw new Error(`${tag}: no result rendered (${JSON.stringify(done)})`);
         walked++;
       } catch (e) { errs.push(e.message); }
       await page.close();
