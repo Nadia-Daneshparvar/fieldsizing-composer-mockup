@@ -32,7 +32,7 @@ const SCOPES = {
   P1: ['src/engine/**', 'tests/engine/**', TARGET],
   P2: ['src/contract/**', 'src/ui/sample-data.js', 'src/ui/app.js', 'tests/contract/**', TARGET],
   P3: ['src/ui/app.js', 'src/ui/configurator.js', 'build.mjs', 'tests/ui/**', 'tests/contract/**', 'src/contract/fields.js', 'src/shell/head.html', TARGET],   // D-RUN-07: fix cycle may add labels and one CSS rule
-  P4: ['src/ui/app.js', 'src/ui/configurator.js', 'tests/ui/**', TARGET],
+  P4: ['src/ui/app.js', 'src/ui/configurator.js', 'tests/ui/**', 'tests/contract/t6-app-labels.test.cjs', 'src/contract/fields.js', TARGET],   // D-RUN-10: retire the P2 bridge check; additive labels
   P5: ['src/io/**', 'tests/io/**', TARGET],
   P6: ['docs/requirements/**', 'docs/handoff/**'],
   P7: ['CHANGELOG.md', 'README.md', 'docs/review/**', TARGET, 'src/**', 'tests/**']
