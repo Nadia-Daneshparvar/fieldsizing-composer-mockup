@@ -111,3 +111,51 @@ test('mixed reference + non-reference (+ ALL): engine order, All HCPs label, no 
   assert.deepEqual(P[0].cells.slice(0, 4), ['Loyalists', 5, 1.4, 9]);
   assert.ok(!H.sectionRows(wb.by.Assumptions, 'Segment inputs')[0].includes(`${L.all} %`));
 });
+
+// F4: new-shape value-only data (no mix, no archetype) with an 'ALL' curve is 100% All HCPs, so the curve groups reconcile live.
+test('value-only data with curveParams.ALL: every segment is one live "All HCPs" curve group', async () => {
+  const inputs = H.sampleInputs('single', 'response', H.mods);
+  inputs.segments.forEach(s => { s.archetypeMix = null; s.archetype = null; });
+  const rc = E.resolveCurves({ ALL: 'moderate' }, C.presets, {});
+  inputs.methodAssumptions.curveParams = rc.curveParams;
+  inputs.methodAssumptions.curveProvenance = rc.provenance;
+  const sc = H.scenarioOf(inputs, { responseCurveConfig: clone(C) });
+  assert.deepEqual(sc.result.errors, []);
+  const bytes = FSIO.exportWorkbook(H.argsOf(sc));
+  const wb = await H.parsed(bytes);
+  const P = paramTable(wb.by[CURVES]);
+  assert.deepEqual(P.map(x => x.cells.slice(0, 4)), [[L.all, 5, 1.1, 3.5]]);
+  const D = wb.by['Detailed Calculations'];
+  const gi = D.findIndex(r => r && r[0] === 'Calls chosen per curve archetype group');
+  assert.ok(gi > 0, 'curve-group table written (live formulas)');
+  const groups = [];
+  for (let k = gi + 3; k < D.length && !blank(D[k]); k++) groups.push({ row: k, cells: D[k] });
+  assert.equal(groups.length, inputs.segments.length);
+  groups.forEach((g, i) => {
+    assert.equal(g.cells[0], String(inputs.segments[i].segment));
+    assert.equal(g.cells[1], L.all);
+    assert.equal(g.cells[2], 1);
+  });
+  // segment totals reconcile with the engine (the exporter writes the live table only when they do)
+  const xml = H.sheetXmlByName(bytes)['Detailed Calculations'];
+  groups.forEach(g => assert.ok(xml.includes(`'${CURVES}'!$B$${P[0].row + 1}`), 'formula uses the All HCPs parameter row'));
+  // no share column for ALL on Assumptions
+  assert.ok(!H.sectionRows(wb.by.Assumptions, 'Segment inputs')[0].some(h => / %$/.test(h) && h.startsWith(L.all)));
+});
+
+// F6: a curveParams entry without δ uses the engine's effective δ (archetypesFor: default 5) everywhere it is shown.
+test('curveParams entry without delta exports the effective δ 5 from archetypesFor', async () => {
+  const rc = E.resolveCurves(C.defaultAssignment, C.presets, {});
+  const noDelta = { gamma: rc.curveParams.Prospects.gamma, rho: rc.curveParams.Prospects.rho };
+  rc.curveParams = Object.assign({}, rc.curveParams, { Prospects: noDelta });
+  assert.equal(E.archetypesFor({ curveParams: rc.curveParams, curveProvenance: rc.provenance }).Prospects.delta, 5);
+  const sc = H.scenarioOf(H.presetInputs(rc), { responseCurveConfig: clone(C) });
+  assert.equal(sc.inputs.methodAssumptions.curveParams.Prospects.delta, undefined);
+  const wb = await H.parsed(FSIO.exportWorkbook(H.argsOf(sc)));
+  const want = ['Prospects', 5, noDelta.gamma, noDelta.rho];
+  assert.deepEqual(paramTable(wb.by[CURVES]).find(x => x.cells[0] === 'Prospects').cells.slice(0, 4), want);
+  const asg = H.sectionRows(wb.by.Assumptions, L.exportHeadings.assignment).find(r => r[0] === 'Prospects');
+  assert.deepEqual([asg[0]].concat(asg.slice(2, 5)), want);
+  const eff = H.sectionRows(wb.by[CURVES], L.exportHeadings.effectiveCurves).find(r => r[0] === 'Prospects');
+  assert.deepEqual([eff[0]].concat(eff.slice(4, 7)), want);
+});

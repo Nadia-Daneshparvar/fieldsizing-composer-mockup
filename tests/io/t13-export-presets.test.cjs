@@ -137,6 +137,7 @@ test('mixed export: custom row with source note, non-reference archetypes and Al
     assert.equal(r[1], uptakeOf(pv, cfg));
     assert.deepEqual(r.slice(2, 5), [p.delta, p.gamma, p.rho]);
     if (pv.source === 'custom') assert.equal(r[5], rc.customSourceNote);
+    else assert.ok(r[5] === undefined || r[5] === null || r[5] === '', `${id}: source note blank on a preset row (F3)`);
   });
   assert.equal(asg.find(r => r[0] === L.all)[1], 'Moderate uptake');
   // Response Curves: numbers equal the curveParams passed, provenance per row, source note line
@@ -187,12 +188,13 @@ test('new and changed sheets use FSFields wording for every new heading', async 
   for (const h of [L.configuratorTitle, HD.presets, HD.curveLibrary, HD.defaultAssignment, HD.flags]) assert.ok(has(CONFIG_SHEET, h), h);
 });
 
-test('a non-response export keeps the method sheets unchanged and still adds Configuration', async () => {
+test('a non-response export keeps the method sheets unchanged; its Configuration reads "No configuration recorded" (D-RUN-09)', async () => {
   const inputs = H.sampleInputs('single', 'affordable', H.mods);
   const sc = H.scenarioOf(inputs, { responseCurveConfig: clone(C) });
   const wb = await H.parsed(FSIO.exportWorkbook(H.argsOf(sc)));
   assert.ok(!wb.names.includes('Response Curves'));
   assert.equal(wb.names[wb.names.length - 1], CONFIG_SHEET);
   assert.equal(H.sectionRows(wb.by.Assumptions, HD.assignment), null);
-  assert.equal(H.sectionRows(wb.by[CONFIG_SHEET], HD.presets).length - 1, 4);
+  assert.equal(H.sectionRows(wb.by[CONFIG_SHEET], HD.presets), null);
+  assert.ok(wb.by[CONFIG_SHEET].some(r => r && r[0] === L.noConfiguration));
 });

@@ -1,29 +1,17 @@
 'use strict';
 // T13 back-compat (P5, I-5): a snapshot without the new curve fields (old draft) exports cell-for-cell as fs-io 1.0.0
-// except the added Configuration sheet, which reads the FSFields "No configuration recorded" message. The 1.0.0 module is
-// taken from git (commit cc3903a, the P0 baseline) and loaded alongside the current one. Synthetic data only.
+// except the added Configuration sheet, which reads the FSFields "No configuration recorded" message (D-RUN-09: also when
+// args.config is passed). The 1.0.0 module is the committed fixture tests/io/fixtures/fs-io-1.0.0.js, byte-identical to
+// src/io/io.js at commit cc3903a (the P0 baseline), loaded alongside the current one. Synthetic data only.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 const H = require('./export-helpers.cjs');
 const { CASES } = require('../helpers/sample-inputs.cjs');
 const { F, FSIO, clone } = H;
 const L = F.RESPONSE_CURVE_LABELS;
 const CONFIG_SHEET = L.exportSheets.configuration;
-const BASE_COMMIT = 'cc3903a';
-
-function loadIo100() {
-  const repo = path.join(__dirname, '..', '..');
-  const src = execFileSync('git', ['show', `${BASE_COMMIT}:src/io/io.js`], { cwd: repo, encoding: 'utf8' });
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-io-1.0.0-'));
-  const file = path.join(dir, 'io-1.0.0.js');
-  fs.writeFileSync(file, src);
-  try { return require(file); } finally { fs.rmSync(dir, { recursive: true, force: true }); }
-}
-const IO100 = loadIo100();
+const IO100 = require(path.join(__dirname, 'fixtures', 'fs-io-1.0.0.js'));
 
 test('the comparison module is fs-io 1.0.0 and the current one is 1.1.0', () => {
   assert.equal(IO100.version, 'fs-io 1.0.0');
@@ -55,12 +43,20 @@ test('old draft with edited reference curves (no provenance) still equals fs-io 
   assertSameExceptConfiguration(H.argsOf(H.scenarioOf(inputs)), 'edited-reference');
 });
 
-test('old draft exported with args.config: only the Configuration sheet changes', async () => {
+test('old draft exported with args.config: Configuration still reads "No configuration recorded" (D-RUN-09)', async () => {
   const inputs = H.sampleInputs('multi', 'response', H.mods);
   const args = H.argsOf(H.scenarioOf(inputs), { config: clone(F.RESPONSE_CURVE_CONFIG) });
   assertSameExceptConfiguration(args, 'old-draft-with-config');
   const wb = await H.parsed(FSIO.exportWorkbook(clone(args)));
-  assert.equal(H.sectionRows(wb.by[CONFIG_SHEET], L.exportHeadings.curveLibrary).length - 1, 17);
+  const rows = wb.by[CONFIG_SHEET].filter(r => r && r.some(v => v !== null && v !== ''));
+  assert.deepEqual(rows, [[L.configuratorTitle], [L.noConfiguration]]);
+});
+
+test('the 1.0.0 fixture is the P0 module (fs-io 1.0.0, no response-curve presets)', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(__dirname, 'fixtures', 'fs-io-1.0.0.js'), 'utf8');
+  assert.match(src, /version: 'fs-io 1\.0\.0'/);
+  assert.ok(!/RESPONSE_CURVE_LABELS/.test(src));
 });
 
 test('AI export of an old draft keeps every 1.0.0 sheet (Configuration after the AI sheets)', () => {

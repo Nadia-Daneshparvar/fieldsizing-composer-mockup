@@ -3707,7 +3707,8 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* fs-io 1.1.0 (FR-48, proposed): uptake presets. Reads only methodAssumptions.{curveParams, curveProvenance,
      customSourceNote}, the scenario's responseCurveConfig (else args.config) and result.curves. A snapshot in the 1.10.0
      shape (no provenance, reference archetype keys only; the engine's own legacy rule) adds nothing to the existing sheets,
-     so an old draft exports as fs-io 1.0.0 apart from the Configuration sheet. Every label comes from FSFields. */
+     so an old draft exports as fs-io 1.0.0 apart from the Configuration sheet, which then reads "No configuration recorded"
+     (D-RUN-09: the current configuration did not size it). Every label comes from FSFields. */
   const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
   const rcLabels = F => F.RESPONSE_CURVE_LABELS || {};
   const RC_ALL = F => (F.RESPONSE_CURVE_RESERVED && F.RESPONSE_CURVE_RESERVED.all) || 'ALL';
@@ -3758,6 +3759,13 @@ abbr[title] { text-decoration: none; cursor: help; }
     c.rcRows.rows.forEach(r => add(r.id));
     return ARCH.filter(a => seen.includes(a)).concat(seen.filter(a => !ARCH.includes(a)));
   }
+  // F4: a segment's archetype mix; for new-shape value-only data (no mix, no archetype) with an 'ALL' curve it is 100% ALL,
+  // as in the engine. Old-shape snapshots keep the 1.0.0 rule.
+  function segMixOf(c, s) {
+    const m = s.archetypeMix || (s.archetype ? { [s.archetype]: 100 } : null);
+    if (m || !c.rcRows || !c.arch.includes(RC_ALL(c.F))) return m;
+    return { [RC_ALL(c.F)]: 100 };
+  }
   function assignmentBlock(c, S) {
     const R = c.rcRows;
     if (!R) return;
@@ -3778,7 +3786,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     R.rows.forEach(x => S.line([x.name, x.uptake, x.sourceText, x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
     if (R.anyCustom) S.line([txt(K.sourceNote), R.note]);
   }
-  // New sheet (fs-io 1.1.0): the configuration snapshot the scenario was sized with
+  // New sheet (fs-io 1.1.0): the configuration snapshot a new-shape scenario was sized with (c.cfg is null for an old-shape one)
   function buildConfiguration(c) {
     const F = c.F, L = rcLabels(F), H = L.exportHeadings || {}, K = L.exportColumns || {};
     const S = new SheetB(txt((L.exportSheets || {}).configuration));
@@ -4144,7 +4152,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const withValue = ma.reachAppliesTo === 'callsAndValue';
     const byStep = new Map((res.trace || []).map(t => [t.step, t.value]));
     const plan = segs.map((sg, i) => {
-      const s = inSeg(i), mix = s.archetypeMix || (s.archetype ? { [s.archetype]: 100 } : null);
+      const s = inSeg(i), mix = segMixOf(c, s);
       const ents = num(s.entities), reach = isNum(s.reachPct) ? s.reachPct / 100 : 0;
       const K = ents > 0 && isNum(sg.allocatedValue) ? sg.allocatedValue / ents : 0;
       const groups = [];
@@ -4173,7 +4181,7 @@ abbr[title] { text-decoration: none; cursor: help; }
         const r = S.r, R = n => `${n}${r + 1}`, q = P[x.a].r + 1;
         const ak = A.segRows.findIndex(y => y.segment === String(segs[i].segment));
         const mixRef = x.fromMix && A.segCols['mix.' + x.a] !== undefined && ak >= 0 ? A.sheet.ref(A.segRows[ak].row, A.segCols['mix.' + x.a]) : null;
-        S.line((c.spec ? [k.rowSpec(i), k.rowDec(i)] : [txt(segs[i].segment)]).concat([x.a, { v: x.m, s: ST.PCT, f: mixRef },
+        S.line((c.spec ? [k.rowSpec(i), k.rowDec(i)] : [txt(segs[i].segment)]).concat([rcArchName(F, x.a), { v: x.m, s: ST.PCT, f: mixRef },
           { v: x.n, s: ST.NUM, f: `${L(mr, 'entities')}*${R(CL('C'))}` },
           { v: x.calls, s: ST.ENG_INT },
           { v: x.reached, s: ST.NUM, f: `IF(${R(CL('E'))}>0,${R(CL('D'))}*${L(mr, 'reach')},0)` },
@@ -5277,8 +5285,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     const focus = scenarios.find(s => s.id === a.focusScenarioId) || scenarios[0];
     const ai = isAiExport(a);                                     // false ⇒ the workbook is exactly the no-AI workbook
     const c = ctxFor(focus, project);
-    c.cfg = rcConfigOf(focus, a);                                 // fs-io 1.1.0: scenario snapshot of the configuration, else args.config
+    /* fs-io 1.1.0 (D-RUN-09): a new-shape scenario records the configuration it was sized with (its responseCurveConfig,
+       else args.config). An old-shape scenario (1.10.0 curve inputs, or not Response Curve) was not sized with any uptake
+       configuration, so its Configuration sheet reads "No configuration recorded" even when args.config is passed. */
+    c.cfg = rcConfigOf(focus, a);
     c.rcRows = curveRowsOf(c);
+    if (!c.rcRows) c.cfg = null;
     c.arch = archListOf(c);                                       // FR-47: archetypes from the data (reference list for a 1.10.0-shaped snapshot)
     c.mixArch = c.arch.filter(x => x !== RC_ALL(c.F));            // 'ALL' is a curve, never a share of a segment
     c.exportedAt = a.exportedAt ? new Date(a.exportedAt) : new Date();
