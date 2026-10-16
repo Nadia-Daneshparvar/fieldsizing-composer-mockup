@@ -12,6 +12,7 @@ export const PARTS = [
   'src/engine/engine.js',
   'src/io/io.js',
   'src/ui/sample-data.js',
+  'src/ui/configurator.js',
   'src/ui/app.js',
   'src/shell/tail.html',
 ];

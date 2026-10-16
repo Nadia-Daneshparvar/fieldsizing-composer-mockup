@@ -171,6 +171,9 @@
     workloadCost: true,
     showReq: false,
     ui: { traceOpen: false, advancedOpen: false, reviewTab: 'summary', notesOpen: true, compareSel: null },
+    /* P3 (FR-46, proposed): the response curve configuration. A deep clone of the frozen FSFields seed, edited only by the
+       Administrator in the configurator; it belongs to the project, so sample loads do not reset it. */
+    config: clone(F.RESPONSE_CURVE_CONFIG),
     respSegType: 'behaviour',   // CS-7: Response Curve segmentation type ('behaviour' = value + curve archetypes; 'value' = value only, not supported)
     /* Simulated AI assist (contract §7). Nothing here feeds buildInputs, the signatures or the export until a person adopts or accepts. */
     ai: { enabled: true, flow: null, sets: [], rev: 0, planStatus: {}, valueOrigins: [], pending: null, adoption: null, narratives: {}, entry: null, touched: {} }
@@ -184,7 +187,7 @@
   const ACTION_LABEL = { checkpoint: 'Validation check', methodology: 'Methodology option', assumption: 'Assumption changed', project: 'Project updated', 'data-entry': 'Data entered',
     ingest: 'Data ingested', upload: 'File selected', mapping: 'Column mapping', method: 'Method', correction: 'Upstream correction', calculate: 'Calculated', snapshot: 'Snapshot saved',
     rename: 'Renamed', clone: 'Cloned', recommend: 'Recommended', unrecommend: 'Recommendation removed', submit: 'Submitted for review', approve: 'Approved', reject: 'Rejected',
-    export: 'Exported', 'role-switch': 'Role switched',
+    export: 'Exported', 'role-switch': 'Role switched', config: (F.RESPONSE_CURVE_LABELS || {}).configuratorTitle,
     'ai-setting': 'AI assistance setting', 'ai-brief': 'AI brief captured', 'ai-proposed': 'AI candidates proposed', 'ai-blocked': 'AI candidate blocked',
     'ai-gap-filled': 'AI question answered', 'ai-adopt-start': 'AI candidate opened for review', 'ai-accepted': 'AI value accepted',
     'ai-edit-accepted': 'AI value edited and accepted', 'ai-rejected': 'AI value rejected', 'ai-adopted': 'AI candidate adopted',
@@ -416,7 +419,7 @@
         <div class="ab-icons">
           ${['search:Search', 'bell:Notifications', 'waffle:App switcher', 'settings:Settings'].map(x => { const [ic, l] = x.split(':'); return `<button type="button" class="ibtn ibtn-24 ab-ic" data-act="chrome" data-arg="${l}" aria-label="${l}">${icon(ic, 24)}</button>`; }).join('')}
         </div>
-        ${aiToggleHtml()}
+        ${configButton()}${aiToggleHtml()}
         <span class="avatar" role="img" aria-label="Signed in as ${esc(u.name)}, ${esc(ROLE_LABEL[state.role])}" title="${esc(u.name)} · ${esc(ROLE_LABEL[state.role])}">${esc(initials)}</span>
       </div>
     </header>`;
@@ -1869,6 +1872,43 @@
     return roleCard + card({ id: 'c-review', body: tablist + panel }) + aiReviewerCard(rec) + exp;
   };
 
+  /* ================================================================== response curve configurator (P3, FR-46 proposed)
+     Administrator only: the header button exists only for that role and every entry point re-checks it. The view and the
+     edit rules live in FSConfigurator (src/ui/configurator.js); here: entry, role gating, dispatch, audit and render.
+     Outside the configurator the Administrator stays read-only (readOnly() is unchanged). */
+  const CFG = W.FSConfigurator;
+  const canConfigure = () => state.role === 'admin' && !!CFG;
+  function configButton() {
+    if (!canConfigure()) return '';
+    /* The visible text hides at narrow widths (head.html .ab-cfg); the aria-label keeps the same accessible name. */
+    return `<button type="button" class="btn btn-outline btn-sm ab-cfg" id="open-config" data-act="openConfig" aria-haspopup="dialog" aria-label="${esc(RCL.configuratorOpen)}">${icon('settings')}<span class="ab-cfg-lbl">${esc(RCL.configuratorOpen)}</span></button>`;
+  }
+  function configRefused() { if (state.dialog && state.dialog.type === 'config') closeDialog(); toast(RCL.configuratorAdminOnly, 'error'); }
+  function configRun(cmd, value, focusId) {
+    const d = state.dialog;
+    if (!canConfigure() || !d || d.type !== 'config') { configRefused(); return; }
+    const r = CFG.command(state.config, d.ui, cmd, value, { user: curUser().name, at: nowIso() });
+    r.changes.forEach(c => audit('config', c));
+    focusAfter(r.focus || focusId || null);
+  }
+  function configChange(el) {
+    const cmd = el.dataset.cfg;
+    configRun(cmd, el.type === 'checkbox' ? el.checked : el.value, null);   // focus stays wherever Tab or the pointer moved it
+    renderSoon();
+  }
+  Object.assign(acts, {
+    openConfig: el => {
+      if (!canConfigure()) { configRefused(); return; }
+      openDialog({ type: 'config', ui: CFG.blankUi('presets'), returnFocus: (el && el.id) || 'open-config' });
+    },
+    cfg: el => {
+      const arg = el.dataset.arg || '';
+      const name = arg === 'add' ? document.getElementById('cfg-new-name') : null;
+      configRun(arg, name ? name.value : undefined, el.id);
+      render();
+    }
+  });
+
   /* ================================================================== dialogs */
   function openDialog(d) { d.returnFocus = d.returnFocus || (document.activeElement && document.activeElement.id) || null; state.dialog = d; render(); }
   function closeDialog() { const rf = state.dialog && state.dialog.returnFocus; state.dialog = null; if (rf) focusAfter(rf); render(); toastQueue.splice(0).forEach(([t, k]) => toast(t, k)); }
@@ -1886,7 +1926,7 @@
   function dialogHtml() {
     const d = state.dialog;
     if (!d) return '';
-    let title = '', body = '', foot = '', wide = false;
+    let title = '', titleHtml = '', body = '', foot = '', wide = false, style = '';
     const cancel = btn({ label: 'Cancel', act: 'dlgCancel', kind: 'outline', id: 'dlg-cancel' });
     if (d.type === 'methodChange') {
       const from = method(), to = d.to, x = methodDiff(from, to);
@@ -1939,16 +1979,21 @@
     } else if (d.type === 'aiEdit') {
       const x = aiEditDialog(d); title = x.title; body = x.body;
       foot = cancel + btn({ label: 'Accept your value', act: 'dlgConfirm', kind: 'primary', id: 'dlg-ok' });
+    } else if (d.type === 'config') {
+      if (!canConfigure()) return '';
+      titleHtml = esc(RCL.configuratorTitle) + rq('FR-46 (proposed)'); wide = true; style = 'width:min(920px, calc(100vw - 24px))';
+      body = CFG.view(state.config, d.ui, { icon, fmtTime });
+      foot = btn({ label: RCL.configuratorClose, act: 'dlgCancel', kind: 'primary', id: 'cfg-close' });
     }
     return `<div class="overlay" data-act="dlgCancel" aria-hidden="true"></div>
-      <div class="dialog${wide ? ' dialog-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dlg-title" id="dlg">
-        <div class="dlg-title"><h2 id="dlg-title">${esc(title)}</h2><button type="button" class="ibtn dlg-x" id="dlg-x" data-act="dlgCancel" aria-label="Close dialog">${icon('x')}</button></div>
+      <div class="dialog${wide ? ' dialog-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dlg-title" id="dlg"${style ? ` style="${style}"` : ''}>
+        <div class="dlg-title"><h2 id="dlg-title">${titleHtml || esc(title)}</h2><button type="button" class="ibtn dlg-x" id="dlg-x" data-act="dlgCancel" aria-label="Close dialog">${icon('x')}</button></div>
         <div class="dlg-body">${body}</div><div class="dlg-foot">${foot}</div></div>`;
   }
   function setupDialogFocus() {
     const dlg = document.getElementById('dlg');
     if (!dlg || dlg.contains(document.activeElement)) return;
-    const first = dlg.querySelector('.dlg-body input, .dlg-body textarea') || dlg.querySelector('#dlg-ok');
+    const first = (state.dialog && state.dialog.type === 'config' ? dlg.querySelector('[role=tab][aria-selected=true]') : dlg.querySelector('.dlg-body input, .dlg-body textarea')) || dlg.querySelector('#dlg-ok');
     if (first) first.focus();
   }
   function dialogConfirm() {
@@ -3395,6 +3440,7 @@
   }
   function onChange(ev) {
     const el = ev.target;
+    if (el.dataset.cfg != null) { configChange(el); return; }
     if (el.dataset.radio) {
       const a = el.dataset.radio;
       aiManualEdit(aiRadioPaths(a));
@@ -3446,13 +3492,13 @@
       if (ev.key === 'Escape') { ev.preventDefault(); closeDialog(); return; }
       if (ev.key === 'Tab') {
         const dlg = document.getElementById('dlg');
-        const f = [...dlg.querySelectorAll('button, input, textarea, [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+        const f = [...dlg.querySelectorAll('button, input, textarea, select, [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
         if (!f.length) return;
         const first = f[0], last = f[f.length - 1];
         if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
         else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
       }
-      return;
+      if (!(t.getAttribute && t.getAttribute('role') === 'tab' && t.closest('#dlg'))) return;   // P3: the configurator's tabs keep arrow-key roving
     }
     if (ev.key === 'Escape' && state.drawerOpen) { state.drawerOpen = false; focusAfter('hamburger'); render(); return; }
     /* Roving focus for radio-card groups, role switcher and tabs (arrow keys move focus; Enter/Space selects). */

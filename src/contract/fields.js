@@ -213,6 +213,19 @@
     removeArchetype: name => `Remove ${name}`,
     archetypeNameRequired: 'Enter an archetype name.',
     archetypeNameDuplicate: 'That archetype is already listed.',
+    // P3 fix cycle 1 (additive): configurator validation and notices
+    archetypeNameReserved: 'That name is reserved by the tool. Choose another archetype name.',
+    presetValueComma: param => `${param}: use a point for decimals, not a comma (for example 1.5).`,
+    presetLabelTooLong: max => `Keep the label to ${max} characters or fewer.`,
+    presetDescriptionTooLong: max => `Keep the description to ${max} characters or fewer.`,
+    presetLabelDuplicate: 'Another preset already has that label.',
+    pickerVisibleLast: 'At least one preset must stay in the uptake picker.',
+    customOffInUse: names => `Custom curves are now off, but the default assignment still uses Custom for: ${names}. Choose a preset for each of them.`,
+    alreadyReference: 'The presets already match the Beghou reference. Nothing was changed.',
+    // P3 fix cycle 2 (additive)
+    presetValuePlainDecimal: param => `${param} must be a plain decimal number, for example 1.5 (digits and an optional decimal point only).`,
+    presetLabelIsCustom: 'That label is used for custom curves. Choose another label.',
+    archetypeNameTooLong: max => `Keep the archetype name to ${max} characters or fewer.`,
     flagLabels: {
       allowValueOnlyResponse: 'Allow value-only data for the response curve method',
       allowCustomCurve: 'Allow custom curves'
