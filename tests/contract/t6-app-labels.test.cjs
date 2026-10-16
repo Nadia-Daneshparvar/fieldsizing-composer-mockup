@@ -14,14 +14,17 @@ const APP = fs.readFileSync(path.join(SRC, 'ui', 'app.js'), 'utf8');
 const STRUCTURAL = new Set(['', 'load-sample-presets', 'loadSamplePresets', 'presets', 'multi', 'text', 'file', 'affordable', 'behaviour', 'project',
   'success', 'new data loaded']);
 
+// P4 (D-RUN-10): the P2 bridge loadPresetSampleProject() is folded into loadSampleProject(kind); its presets branch is checked.
 function newCode() {
   const start = APP.indexOf('/* Uptake presets sample (P2)');
   assert.ok(start > 0, 'marker comment present');
-  const fnStart = APP.indexOf('function loadPresetSampleProject()');
-  const fnEnd = APP.indexOf('\n  }\n', fnStart);
-  assert.ok(fnStart > 0 && fnEnd > fnStart);
-  const head = APP.slice(start, APP.indexOf('function loadSampleProject(kind)', start));
-  const body = APP.slice(fnStart, fnEnd);
+  const loader = APP.indexOf('function loadSampleProject(kind)', start);
+  assert.ok(loader > start, 'one loader follows the marker');
+  const brStart = APP.indexOf('    if (presets) {', loader);
+  const brEnd = APP.indexOf('\n    }\n', brStart);
+  assert.ok(brStart > loader && brEnd > brStart, 'presets branch inside loadSampleProject');
+  const head = APP.slice(start, loader);
+  const body = APP.slice(brStart, brEnd);
   // The two Step 1 button rows only gain the call presetSampleBtn(), which carries no literal; the other new lines:
   const lines = APP.split('\n').filter(l => /loadSamplePresets|kind === 'presets'/.test(l));
   return [head, body].concat(lines).join('\n');
@@ -45,6 +48,9 @@ test('the third load button, its action and the presets loader read their text f
   // The button sits next to the two existing load buttons in both Step 1 places.
   assert.equal((APP.match(/presetSampleBtn\(\)/g) || []).length, 2);
   assert.equal((APP.match(/id: 'load-sample-presets'/g) || []).length, 1);
-  // Bridge until P4: curves come from the engine's resolveCurves on the configuration's default assignment.
-  assert.ok(/E\.resolveCurves\(cfg\.defaultAssignment, cfg\.presets, \{\}\)/.test(code));
+  // P4: the bridge is retired. Curves are no longer written at load time; the sample seeds state.responseCurve, and
+  // buildInputs resolves it against state.config.
+  assert.ok(!/E\.resolveCurves\(cfg\.defaultAssignment/.test(APP), 'P2 bridge removed');
+  assert.ok(!APP.includes('function loadPresetSampleProject('), 'no separate presets loader');
+  assert.ok(code.includes("seedResponseCurve('presets')"), 'presets branch seeds the response curve');
 });

@@ -283,7 +283,17 @@
     samplePresetsButton: 'Load uptake presets synthetic sample',
     samplePresetsData: 'Synthetic uptake presets sample data',
     samplePresetsAudit: 'Synthetic uptake presets sample project loaded (3 archetypes with default uptake)',
-    samplePresetsToast: 'Synthetic uptake presets sample loaded. Run the inputs check to continue.'
+    samplePresetsToast: 'Synthetic uptake presets sample loaded. Run the inputs check to continue.',
+    // P4 fix 1 (additive): Segmentation type audit wording when value-only data is allowed (one "All HCPs" uptake)
+    segTypeValueOnlyAllowed: 'Value only (one "All HCPs" uptake)',
+    // P4 fix 2 (additive): Step 2 table and Scenario Summary wording; earlier drafts without uptake choices
+    share: 'Share',
+    total: 'Total',
+    noArchetype: 'No archetype supplied',
+    notApplicable: 'Not applicable',
+    referenceCurve: 'Reference curve (earlier draft without an uptake choice)',
+    editedCurve: 'Edited curve (earlier draft without an uptake choice)',
+    carriedOverNote: 'Curve values carried over from an earlier draft'
   });
 
   const MAPPING_FIELDS = [

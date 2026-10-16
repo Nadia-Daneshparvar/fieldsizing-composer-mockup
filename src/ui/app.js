@@ -86,7 +86,6 @@
   const grainMany = g => F.GRAIN[g || 'hcp'].many;
   const SEG_FIELD = id => F.SEGMENT_FIELDS.find(f => f.id === id);
   const MAP_FIELD = id => F.MAPPING_FIELDS.find(f => f.id === id);
-  const ARCH_NAMES = () => Object.keys((E && E.ARCHETYPES) || { Loyalists: 1, Splitters: 1, Dabblers: 1, Conservatives: 1 });
 
   const SECTIONS = [
     { id: 'setup', label: 'Project and Input', icon: 'folder', sub: 'Name the engagement, choose the sizing method, then bring in the upstream segment data.' },
@@ -174,6 +173,9 @@
     /* P3 (FR-46, proposed): the response curve configuration. A deep clone of the frozen FSFields seed, edited only by the
        Administrator in the configurator; it belongs to the project, so sample loads do not reset it. */
     config: clone(F.RESPONSE_CURVE_CONFIG),
+    /* P4 (I-2): the analyst's uptake choice per archetype id (or 'ALL'), Custom curve values and their source note. Sample
+       loads seed it (FSSample.responseCurveSeed); a new project starts empty; unassigned archetypes are absent. */
+    responseCurve: { assignment: {}, custom: {}, customSourceNote: '' },
     respSegType: 'behaviour',   // CS-7: Response Curve segmentation type ('behaviour' = value + curve archetypes; 'value' = value only, not supported)
     /* Simulated AI assist (contract §7). Nothing here feeds buildInputs, the signatures or the export until a person adopts or accepts. */
     ai: { enabled: true, flow: null, sets: [], rev: 0, planStatus: {}, valueOrigins: [], pending: null, adoption: null, narratives: {}, entry: null, touched: {} }
@@ -213,10 +215,13 @@
   /* Engine inputs: segment rows are projected to the fields the method uses; everything else is null. */
   function buildInputs() {
     const ids = new Set(visibleIds());
+    /* D3 (P4): value-only with the configuration flag on sends no archetypes, so every row uses the single 'ALL' curve. */
+    const vo = valueOnlyRuns();
     const rows = state.segments.map(s => {
       const r = { segment: s.segment, entities: s.entities, compositeValue: null, reachPct: s.reachPct, maxCalls: null, minCalls: null, plannedCalls: null, archetypeMix: null };
       ['compositeValue', 'maxCalls', 'minCalls', 'plannedCalls', 'archetypeMix'].forEach(k => { if (ids.has(k)) r[k] = s[k] == null ? null : clone(s[k]); });
       if (ids.has('archetypeMix')) r.archetype = s.archetypeMix ? null : (s.archetype || null);   // FR-14: single archetype; a mix wins
+      if (vo) { r.archetypeMix = null; if (ids.has('archetypeMix')) r.archetype = null; }
       if (hasSpecKey(s)) { r.specialty = s.specialty; r.decile = s.decile == null ? null : String(s.decile); }   // CS-3 display keys (identity stays segment)
       return r;
     });
@@ -224,11 +229,26 @@
     if (sh.costMode !== 'layers') sh.layers = null;
     if (method() === 'workload' && !state.workloadCost) sh.repCost = null;   // Workload: cost is optional
     if (sh.capacityInput && sh.capacityInput.mode === 'derived') sh.capacity = null;   // engine derives it (v1.3)
+    const ents = state.entities ? clone(state.entities) : null;
+    if (ents && vo) ents.forEach(e => { if (e && typeof e === 'object') e.archetype = null; });
+    const mas = projectMethodAssumptions();
+    if (method() === 'response') withCurves(mas);
     return {
       method: method(), grain: state.project.grain, inputGrain: state.inputGrain,
-      segments: rows, entities: state.entities ? clone(state.entities) : null,
-      shared: sh, methodAssumptions: projectMethodAssumptions()
+      segments: rows, entities: ents,
+      shared: sh, methodAssumptions: mas
     };
+  }
+  /* I-4: Response Curve curves come only from here: FSEngine.resolveCurves over the uptake assignment, restricted to the
+     archetypes in the data (or 'ALL' for value-only), with the configuration's presets and the Custom values. A stored
+     curveParams (older draft) is never sent; with nothing assigned the keys are left out (the engine's old-shape path). */
+  function withCurves(m) {
+    delete m.curveParams; delete m.curveProvenance; delete m.customSourceNote;
+    const r = resolvedCurves();
+    if (!Object.keys(r.curveParams).length) return m;
+    m.curveParams = r.curveParams; m.curveProvenance = r.provenance;
+    if (Object.keys(r.provenance).some(id => r.provenance[id].source === 'custom')) m.customSourceNote = state.responseCurve.customSourceNote;
+    return m;
   }
   /* v1.1 ValueInputs: either direct annualValue or the forecast chain, never both.
      v0.5.1 (CS-1, delta §3): no mode choice. The chain always sends all three shares and never sends
@@ -262,7 +282,7 @@
   const valueMode = () => state.valueMode[method()] || 'chain';
   const inputsSig = () => JSON.stringify({ p: state.project, g: state.inputGrain, s: state.segments.map(s => [s.segment, s.entities, s.compositeValue, s.archetypeMix, s.archetype]), e: state.entities ? state.entities.length : 0 });
   /* CS-7: a Response draft marked value-only cannot pass the assumptions check, so the choice is part of the signature. */
-  const assumptionsSig = () => { const s = JSON.stringify(buildInputs()); return method() === 'response' && state.respSegType === 'value' ? s + '|value-only' : s; };
+  const assumptionsSig = () => { const s = JSON.stringify(buildInputs()); return method() === 'response' && state.respSegType === 'value' ? s + (valueOnlyRuns() ? '|value-only-all' : '|value-only') : s; };
   const resultIsCurrent = () => !!state.result && state.resultSig === assumptionsSig();
 
   function stageStatus(id) {
@@ -289,11 +309,24 @@
 
   /* Classify an engine Issue into the inputs or the assumptions checkpoint using SEGMENT_FIELDS ownership. */
   function issueStage(issue) {
+    /* FR-47 (P4): an archetype in the data with no uptake is an assumption to choose on Model Assumptions, not a data defect;
+       likewise value-only rows waiting for the "All HCPs" uptake. */
+    if (issue.code === 'unknown-archetype' || (issue.code === 'response-needs-entity-or-mix' && valueOnlyRuns()) || mixTotalFromUptake(issue)) return 'assumptions';
     const p = String(issue.path || '');
     const m = p.match(/^segments(?:\[(\d*)\])?\.(\w+)/);
     if (m) { const f = SEG_FIELD(m[2]); return f && f.owner === 'upstream' ? 'inputs' : 'assumptions'; }
     if (/^entities(\[|\.|$)/.test(p) || /^(method|grain|inputGrain|segments)$/.test(p)) return 'inputs';
     return 'assumptions';
+  }
+  /* The engine totals a mix over the archetypes it has curves for; with an archetype still waiting for its uptake, a mix that
+     totals 100% as delivered is reported short. That follows from the missing uptake (Step 2), not from the data (fix 2). */
+  function mixTotalFromUptake(issue) {
+    const m = issue.code === 'archetype-mix-total' && String(issue.path || '').match(/^segments\[(\d+)\]\.archetypeMix$/);
+    const mix = m && state.segments[+m[1]] && state.segments[+m[1]].archetypeMix;
+    if (!mix) return false;
+    const tot = Object.keys(mix).reduce((t, k) => t + (isNum(mix[k]) ? mix[k] : 0), 0);
+    const cp = resolvedCurves().curveParams;
+    return Math.abs(tot - 100) <= 1e-6 && Object.keys(mix).some(k => !E.ARCHETYPES[k] && !ownKey(cp, k));
   }
   function issueWhere(issue) {
     const p = String(issue.path || '');
@@ -770,7 +803,7 @@
   /* ---------- loaded data (upstream fields) ---------- */
   function mixText(mix) {
     if (!mix) return '';
-    return ARCH_NAMES().map(a => `${a} ${fmt.num1(mix[a] || 0)}%`).join(' · ');
+    return segArchetypes().map(a => `${a} ${fmt.num1(mix[a] || 0)}%`).join(' · ');   // FR-47: the archetypes in the data
   }
   const archPicker = (m, i, s) => m === 'response' && state.inputGrain === 'summary';
   const archText = s => (s.archetypeMix ? mixText(s.archetypeMix) : s.archetype || 'Not supplied');
@@ -1088,87 +1121,279 @@
       ${mode === 'chain' && ivErr && iv && isNum(iv.annual) ? `<div class="err" role="alert">${esc(ivErr)}</div>` : ''}`;
   }
 
-  /* CS-7: read-only count of entities by curve archetype, as supplied upstream (a mix spreads a segment's count by its shares). */
-  function archetypeCounts() {
-    const out = {}; ARCH_NAMES().forEach(a => { out[a] = 0; });
+  /* ---------- P4 (FR-44, FR-45, FR-47, proposed): response curve uptake per archetype ----------
+     The archetype list is read from the data (FR-47), never a fixed list: entity rows when present, else every segment's
+     archetype mix keys and single archetype; reference archetypes first (the engine's order), then the others as first seen.
+     The analyst chooses an uptake preset per archetype (or Custom, with δ/γ/ρ and one source note); the curves the engine
+     receives come only from FSEngine.resolveCurves (buildInputs → withCurves). Strings: FSFields.RESPONSE_CURVE_LABELS (RCL). */
+  const RC_ALL = (F.RESPONSE_CURVE_RESERVED || {}).all || 'ALL';
+  const RC_CUSTOM = (F.RESPONSE_CURVE_RESERVED || {}).custom || 'custom';
+  const RC_PARAMS = ['delta', 'gamma', 'rho'];
+  const ownKey = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+  const blankResponseCurve = () => ({ assignment: {}, custom: {}, customSourceNote: '' });
+  const rcName = id => (id === RC_ALL ? RCL.all : id);
+  const refFirst = seen => { const ref = Object.keys((E && E.ARCHETYPES) || {}); return ref.filter(a => seen.includes(a)).concat(seen.filter(a => !ref.includes(a))); };
+  const addArch = (seen, a) => { if (typeof a === 'string' && a !== '' && !seen.includes(a)) seen.push(a); };
+  function segArchetypes() {
+    const seen = [];
+    state.segments.forEach(s => { if (s.archetypeMix) Object.keys(s.archetypeMix).forEach(a => addArch(seen, a)); else addArch(seen, s.archetype); });
+    return refFirst(seen);
+  }
+  const entityRows = () => (state.entities && state.entities.length ? state.entities : null);
+  function dataArchetypes() {
+    const ents = entityRows();
+    if (!ents) return segArchetypes();
+    const seen = [];
+    ents.forEach(e => addArch(seen, e && e.archetype));
+    return refFirst(seen);
+  }
+  const rcFlags = () => (state.config && state.config.flags) || {};
+  const respValueOnly = () => method() === 'response' && state.respSegType === 'value';
+  /* D3: value-only stays blocked (CS-7) unless the configuration allows it; then one "All HCPs" row ('ALL') is sized. */
+  const valueOnlyBlocked = () => respValueOnly() && rcFlags().allowValueOnlyResponse !== true;
+  const valueOnlyRuns = () => respValueOnly() && rcFlags().allowValueOnlyResponse === true;
+  const curveArchetypes = () => (valueOnlyRuns() ? [RC_ALL] : dataArchetypes());
+  const rcPresets = () => (state.config && state.config.presets) || [];
+  const uptakeLabel = a => (!a ? RCL.notAssigned : a === RC_CUSTOM ? RCL.custom : (rcPresets().find(p => p.id === a) || {}).label || a);
+  /* Resolved curves for the archetypes in the data only (I-4); assignments for archetypes no longer in the data are kept, unsent. */
+  function resolvedCurves() {
+    const rc = state.responseCurve, ids = curveArchetypes(), asg = {};
+    ids.forEach(id => { if (ownKey(rc.assignment, id) && rc.assignment[id]) asg[id] = rc.assignment[id]; });
+    const out = E.resolveCurves(asg, rcPresets(), rc.custom);
+    return { ids, assignment: asg, curveParams: out.curveParams, provenance: out.provenance, issues: out.issues };
+  }
+  /* Uptake issues as assumption-check items against the right row (path + "Go to field" target). resolveCurves issues
+     (unknown-preset, custom-curve-invalid) are matched to their archetype by exact path; the UI adds "no uptake chosen"
+     (no hidden default), Custom while custom curves are off, and the required source note (custom-source-missing). */
+  function curveIssues(r) {
+    if (method() !== 'response' || valueOnlyBlocked()) return [];
+    r = r || resolvedCurves();
+    const V = RCL.validation || {}, rc = state.responseCurve, out = [];
+    const where = id => `${RCL.uptakeByArchetype} · ${rcName(id)}`;
+    r.ids.forEach((id, i) => {
+      const a = r.assignment[id], p = `responseCurve.assignment.${id}`;
+      if (!a) out.push({ where: where(id), message: V.unassigned(rcName(id)), path: p, target: `rc-${i}-up`, unassigned: true });
+      else if (a === RC_CUSTOM && rcFlags().allowCustomCurve === false) out.push({ where: where(id), message: RCL.customNotAllowed, path: p, target: `rc-${i}-up` });
+      /* Fix 2 (F2): a blank Custom δ is an error like γ and ρ; the engine's default δ of 5 is never applied silently. */
+      if (a === RC_CUSTOM) { const d = (rc.custom[id] || {}).delta; if (d === null || d === undefined || d === '')
+        out.push({ where: where(id), message: V['custom-curve-invalid'](rcName(id), RCL.delta), path: `responseCurve.custom.${id}.delta`, target: `rc-${i}-delta` }); }
+    });
+    r.issues.forEach(x => {
+      const p = String(x.path || '');
+      const i = r.ids.findIndex(id => p === `responseCurve.assignment.${id}` || RC_PARAMS.some(k => p === `responseCurve.custom.${id}.${k}`));
+      if (i < 0) return;
+      const id = r.ids[i];
+      if (x.code === 'unknown-preset') out.push({ where: where(id), message: V['unknown-preset'](rcName(id), r.assignment[id]), path: p, target: `rc-${i}-up` });
+      else if (x.code === 'custom-curve-invalid') { const k = p.slice(p.lastIndexOf('.') + 1), fm = rcFmtOf(id, k);
+        out.push({ where: where(id), message: fm ? `${rcName(id)} · ${fm}` : V['custom-curve-invalid'](rcName(id), RCL[k]), path: p, target: `rc-${i}-${k}` }); }
+    });
+    if (r.ids.some(id => r.assignment[id] === RC_CUSTOM) && !String(rc.customSourceNote || '').trim())
+      out.push({ where: RCL.sourceNote, message: V['custom-source-missing'](), path: 'responseCurve.customSourceNote', target: 'rc-note' });
+    return out;
+  }
+
+  /* Read-only count of entities by curve archetype, as supplied upstream (a mix spreads a segment's count by its shares). */
+  function archetypeCounts(ids) {
+    const out = {}; ids.forEach(a => { out[a] = 0; });
+    const all = ids.length === 1 && ids[0] === RC_ALL;
     let none = 0;
-    if (state.inputGrain === 'entity' && state.entities && state.entities.length) state.entities.forEach(e => { if (e.archetype && out[e.archetype] != null) out[e.archetype] += 1; else none += 1; });
+    if (entityRows()) state.entities.forEach(e => { if (all) out[RC_ALL] += 1; else if (e.archetype && ownKey(out, e.archetype)) out[e.archetype] += 1; else none += 1; });
     else state.segments.forEach(s => {
       const n = isNum(s.entities) ? s.entities : 0;
-      if (s.archetypeMix) ARCH_NAMES().forEach(a => { out[a] += n * (isNum(s.archetypeMix[a]) ? s.archetypeMix[a] : 0) / 100; });
-      else if (s.archetype && out[s.archetype] != null) out[s.archetype] += n; else none += n;
+      if (all) out[RC_ALL] += n;
+      else if (s.archetypeMix) ids.forEach(a => { out[a] += n * (isNum(s.archetypeMix[a]) ? s.archetypeMix[a] : 0) / 100; });
+      else if (s.archetype && ownKey(out, s.archetype)) out[s.archetype] += n; else none += n;
     });
     return { out, none };
   }
-  function archetypeSummary() {
-    const g = state.project.grain, { out, none } = archetypeCounts(), total = Object.keys(out).reduce((a, k) => a + out[k], 0) + none;
-    const rows = ARCH_NAMES().map(a => `<tr><th scope="row" class="rowh">${esc(a)}</th><td class="num">${fmt.int(out[a])}</td><td class="num">${total > 0 ? fmt.pct(out[a] / total * 100) : '—'}</td></tr>`).join('')
-      + (none ? `<tr><th scope="row" class="rowh">No archetype supplied</th><td class="num">${fmt.int(none)}</td><td class="num">${total > 0 ? fmt.pct(none / total * 100) : '—'}</td></tr>` : '');
-    return `<div class="arch-sum" id="arch-summary"><p class="lbl">${esc(cap(grainMany(g)))} by archetype</p>
-      <div class="grid-wrap"><table class="grid-t arch-t"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">${esc(cap(grainMany(g)))}</th><th scope="col" class="num">Share</th></tr></thead><tbody>${rows}</tbody>
-      <tfoot><tr><th scope="row" class="rowh">Total</th><td class="num">${fmt.int(total)}</td><td></td></tr></tfoot></table></div>
-      <p class="hint">Read-only, from the uploaded data. A segment supplied with an archetype mix is spread by its shares. The mix is not editable here.</p></div>`;
-  }
-  /* ---------- 2026-10-12 review (Kunal): response curve inputs per archetype, with a live chart beside them ----------
-     gamma (shape) and rho (saturation) are editable; delta cancels under normalization and is not shown. Values default to the
-     engine's reference parameters (decision 9, amended). The chart plots the engine's own normalized curve,
-     Response(x) / Response(X), using FSEngine.archetypesFor and the same formula; nothing here feeds the calculation. */
+  /* The chart plots the engine's own normalized curve, Response(x) / Response(X), with the same formula, for the curve each
+     archetype resolves to; nothing here feeds the calculation. */
   const CURVE_COLORS = { Loyalists: '#020434', Splitters: '#3282FA', Dabblers: '#11A13C', Conservatives: '#C77700' };
-  const refArch = a => (E && E.ARCHETYPES && E.ARCHETYPES[a]) || null;
-  const curveOk = p => p && isNum(p.gamma) && p.gamma > 0 && isNum(p.rho) && p.rho > 0;
+  const CURVE_PALETTE = ['#3282FA', '#11A13C', '#C77700', '#020434', '#8A3FFC', '#E60F65', '#00838F', '#6D4C41'];
+  const curveColor = (a, i) => CURVE_COLORS[a] || CURVE_PALETTE[i % CURVE_PALETTE.length];
+  const curveOk = p => !!p && isNum(p.delta) && p.delta > 0 && isNum(p.gamma) && p.gamma > 0 && isNum(p.rho) && p.rho > 0;
   const curveR = (p, x) => (x <= 0 ? 0 : Math.pow(p.delta * x, p.gamma) / (Math.pow(x, p.gamma) + p.rho));
-  const curveEff = () => (E && E.archetypesFor ? E.archetypesFor(ma() || {}) : (E && E.ARCHETYPES) || {});
-  const curveEdited = a => { const r = refArch(a), u = ((ma() || {}).curveParams || {})[a] || {}; return !!r && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); };
   const halfAt = p => (curveOk(p) ? Math.pow(p.rho, 1 / p.gamma) : null);
-  function curvePlotSvg() {
+  const rawNum = v => (isNum(v) ? String(v) : '—');
+  function curvePlotSvg(r) {
     const X = isNum((ma() || {}).scenarioMaxCalls) && ma().scenarioMaxCalls > 0 ? ma().scenarioMaxCalls : DEFAULTS.scenarioMaxCalls;
-    const A = curveEff(), W0 = 460, H0 = 280, L = 44, R = 14, T = 14, B = 40, w = W0 - L - R, h = H0 - T - B;
+    const A = r.curveParams, W0 = 460, H0 = 280, L = 44, R = 14, T = 14, B = 40, w = W0 - L - R, h = H0 - T - B;
     const sx = x => L + (x / X) * w, sy = y => T + h - Math.max(0, Math.min(1.05, y)) / 1.05 * h;
     const path = p => { const d = curveR(p, X); if (!(d > 0)) return ''; const pts = []; for (let k = 0; k <= 96; k++) { const x = X * k / 96; pts.push(`${sx(x).toFixed(1)},${sy(curveR(p, x) / d).toFixed(1)}`); } return pts.join(' '); };
     const xt = []; const stepX = X <= 24 ? 4 : X <= 60 ? 8 : 20; for (let x = 0; x <= X; x += stepX) xt.push(x); if (xt[xt.length - 1] !== X) xt.push(X);
     const grid = [0, 0.25, 0.5, 0.75, 1].map(y => `<line x1="${L}" x2="${L + w}" y1="${sy(y)}" y2="${sy(y)}" stroke="rgba(2,4,52,0.08)"/><text x="${L - 6}" y="${sy(y) + 4}" text-anchor="end" font-size="11" fill="rgba(2,4,52,0.6)">${y === 0 ? '0' : y.toFixed(2).replace(/0$/, '')}</text>`).join('');
     const xl = xt.map(x => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${T + h}" y2="${T + h + 4}" stroke="rgba(2,4,52,0.4)"/><text x="${sx(x)}" y="${T + h + 16}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)">${x}</text>`).join('');
-    const names = ARCH_NAMES();
-    const ghosts = names.filter(a => curveEdited(a) && refArch(a)).map(a => `<polyline fill="none" stroke="${CURVE_COLORS[a] || '#020434'}" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.45" points="${path(refArch(a))}"/>`).join('');
-    const lines = names.filter(a => curveOk(A[a])).map(a => `<polyline fill="none" stroke="${CURVE_COLORS[a] || '#020434'}" stroke-width="2.25" points="${path(A[a])}"><title>${esc(a)}: gamma ${fmt.num1(A[a].gamma)}, rho ${fmt.num1(A[a].rho)}</title></polyline>`).join('');
-    const label = `Normalized response by call count, 0 to ${X} calls, for ${names.join(', ')}. ${names.map(a => (curveOk(A[a]) ? `${a}: half of peak response at about ${fmt.num1(halfAt(A[a]))} calls` : `${a}: invalid parameters`)).join('; ')}.`;
+    const names = r.ids;
+    const lines = names.map((a, i) => (curveOk(A[a]) ? `<polyline fill="none" stroke="${curveColor(a, i)}" stroke-width="2.25" data-arch="${esc(a)}" points="${path(A[a])}"><title>${esc(RCL.curveLegendPreset(rcName(a), uptakeLabel(r.assignment[a])))}</title></polyline>` : '')).join('');
+    const label = `Normalized response by call count, 0 to ${X} calls, for ${names.map(rcName).join(', ')}. ${names.map(a => (curveOk(A[a]) ? `${RCL.curveLegendPreset(rcName(a), uptakeLabel(r.assignment[a]))}, half of peak response at about ${fmt.num1(halfAt(A[a]))} calls` : `${rcName(a)}: ${r.assignment[a] ? 'invalid parameters' : RCL.notAssigned}`)).join('; ')}.`;
     return `<svg viewBox="0 0 ${W0} ${H0}" role="img" aria-label="${esc(label)}" xmlns="http://www.w3.org/2000/svg">
       ${grid}<line x1="${L}" x2="${L + w}" y1="${T + h}" y2="${T + h}" stroke="rgba(2,4,52,0.4)"/>${xl}
       <text x="${L + w / 2}" y="${H0 - 6}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)">Calls per ${esc(grainOne(state.project.grain))} per year</text>
       <text x="12" y="${T + h / 2}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)" transform="rotate(-90 12 ${T + h / 2})">Response (1 = at ${X} calls)</text>
-      ${ghosts}${lines}</svg>`;
+      ${lines}</svg>`;
   }
-  function curveLegend() {
-    const any = ARCH_NAMES().some(curveEdited);
-    return `<div class="curve-legend">${ARCH_NAMES().map(a => `<span><span class="sw" style="background:${CURVE_COLORS[a] || '#020434'}"></span>${esc(a)}</span>`).join('')}${any ? '<span class="muted"><span class="sw sw-dash"></span>Reference curve (before your edit)</span>' : ''}</div>`;
+  /* Legend: the preset label per archetype (or Custom, or "Not chosen"). */
+  function curveLegend(r) {
+    return `<div class="curve-legend" id="curve-legend">${r.ids.map((a, i) => `<span><span class="sw" style="background:${curveColor(a, i)}"></span>${esc(RCL.curveLegendPreset(rcName(a), uptakeLabel(r.assignment[a])))}</span>`).join('')}</div>`;
   }
+  /* Live update while typing a Custom value: chart, legend and the Advanced read-only values. */
   function refreshCurve() {
-    const pl = document.getElementById('curve-plot'); if (pl) pl.innerHTML = curvePlotSvg() + curveLegend();
-    const A = curveEff();
-    ARCH_NAMES().forEach((a, i) => { const c = document.getElementById(`cp-${i}-half`); if (c) c.textContent = curveOk(A[a]) ? fmt.num1(halfAt(A[a])) : '—'; });
+    const r = resolvedCurves();
+    const pl = document.getElementById('curve-plot'); if (pl) pl.innerHTML = curvePlotSvg(r) + curveLegend(r);
+    r.ids.forEach((a, i) => {
+      const p = r.curveParams[a];
+      RC_PARAMS.forEach(k => { const c = document.getElementById(`rc-adv-${i}-${k}`); if (c) c.textContent = p ? rawNum(p[k]) : '—'; });
+      const c = document.getElementById(`rc-adv-${i}-half`); if (c) c.textContent = curveOk(p) ? fmt.num(halfAt(p), 2) : '—';
+    });
   }
-  function curveBlock() {
-    const iss = assumptionIssues(), A = curveEff(), cp = (ma() || {}).curveParams || {}, ro = readOnly();
-    const anyEdited = ARCH_NAMES().some(curveEdited);
-    const val = (a, k) => { const u = cp[a] || {}; return u[k] !== undefined ? u[k] : (refArch(a) || {})[k]; };
-    const rows = ARCH_NAMES().map((a, i) => {
-      const eg = iss[`methodAssumptions.curveParams.${a}.gamma`], er = iss[`methodAssumptions.curveParams.${a}.rho`], r = refArch(a) || {};
-      return `<tr class="${eg || er ? 'has-err' : ''}"><th scope="row" class="rowh"><span class="sw" style="background:${CURVE_COLORS[a] || '#020434'}"></span>${esc(a)}${curveEdited(a) ? ' <span class="chip chip-outline chip-sm">Edited</span>' : ''}</th>
-        <td class="cell-in num">${numInput({ id: `cp-${i}-g`, bind: `ma.curveParams.${a}.gamma`, value: val(a, 'gamma'), compact: true, error: eg ? 'x' : '', ariaLabel: `${a} shape (gamma), reference ${r.gamma}` })}</td>
-        <td class="cell-in num">${numInput({ id: `cp-${i}-r`, bind: `ma.curveParams.${a}.rho`, value: val(a, 'rho'), compact: true, error: er ? 'x' : '', ariaLabel: `${a} saturation (rho), reference ${r.rho}` })}</td>
-        <td class="num derived-cell" id="cp-${i}-half">${curveOk(A[a]) ? fmt.num1(halfAt(A[a])) : '—'}</td>
-        <td class="num muted">${esc(String(r.gamma))} / ${esc(String(r.rho))}</td></tr>`;
-    }).join('');
-    const errs = ARCH_NAMES().flatMap(a => [iss[`methodAssumptions.curveParams.${a}.gamma`], iss[`methodAssumptions.curveParams.${a}.rho`]]).filter(Boolean);
-    return `<div class="curve-blk" id="curve-params"><div class="row-between"><p class="lbl">Response curve assumptions</p>${anyEdited && !ro ? btn({ label: 'Reset to reference curves', act: 'curveReset', kind: 'text', ic: 'refresh', id: 'curve-reset', small: true }) : ''}</div>
-      <p class="hint">Two values set the shape of each archetype's curve: <strong>shape (gamma)</strong> controls how fast uptake starts (higher means a slower, more S-shaped start) and <strong>saturation (rho)</strong> controls how many calls it takes before the response levels off (higher means later). Edit a value and the chart updates as you type.</p>
-      <div class="curve-split"><div class="grid-wrap"><table class="grid-t curve-t" id="curve-table"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">Shape (γ)</th><th scope="col" class="num">Saturation (ρ)</th><th scope="col" class="num is-derived">Half of peak at (calls)</th><th scope="col" class="num">Reference γ / ρ</th></tr></thead><tbody>${rows}</tbody></table>
-        ${errs.length ? `<div class="err" role="alert"><ul class="plain">${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
-        <p class="hint">Half of peak = ρ^(1/γ) calls. Reference values are the standard method's; changing them is recorded in the audit trail and shown on the scenario.</p></div>
-        <div class="curve-plot" id="curve-plot" aria-live="polite">${curvePlotSvg()}${curveLegend()}</div></div></div>`;
+  /* Step 2 · Method-specific: Response Curve → "Uptake by archetype" (§6.3 1–5). Read-only for the Administrator (D4). */
+  function uptakeSection() {
+    const g = state.project.grain, r = resolvedCurves(), ids = r.ids, rc = state.responseCurve, asg = r.assignment;
+    const vo = valueOnlyRuns(), ro = readOnly();
+    const { out, none } = archetypeCounts(ids), total = ids.reduce((s, a) => s + out[a], 0) + none;
+    /* Errors show live, except "no uptake chosen", which shows once the assumptions check has been run. */
+    const run = assumptionIssues(), live = curveIssues(r), err = {};
+    live.forEach(x => { if (!x.unassigned || run[x.path]) err[x.path] = x.message; });
+    const anyCustom = ids.some(a => asg[a] === RC_CUSTOM);
+    const rows = ids.map((a, i) => {
+      const name = rcName(a), cur = asg[a] || null, pa = `responseCurve.assignment.${a}`;
+      const opts = CFG && CFG.pickerOptions ? CFG.pickerOptions(state.config, cur) : rcPresets().filter(p => p.pickerVisible || p.id === cur).map(p => ({ value: p.id, label: p.label }));
+      const pick = dropdown({ id: `rc-${i}-up`, label: name, compact: true, value: cur, options: opts, placeholder: RCL.chooseUptake, error: err[pa] ? 'x' : '', onSelect: v => { rcAssign(a, v); render(); } });
+      const custErr = RC_PARAMS.some(k => err[`responseCurve.custom.${a}.${k}`]);
+      const c = rc.custom[a] || {};
+      const custom = cur === RC_CUSTOM ? `<tr class="rc-custom${custErr ? ' has-err' : ''}"><td colspan="4"><div class="rc-custom-in" role="group" aria-labelledby="rc-${i}-name" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;padding:4px 0 4px 20px">
+          ${RC_PARAMS.map(k => { const raw = rcRawOf(a, k), h = numInput({ id: `rc-${i}-${k}`, value: c[k], compact: true, error: err[`responseCurve.custom.${a}.${k}`] ? 'x' : '', ariaLabel: `${name} · ${RCL[k]}` }).replace('<input ', `<input data-rc-arch="${i}" data-rc-param="${k}" `);
+            return `<div class="field" style="margin:0"><label class="lbl" for="rc-${i}-${k}">${esc(RCL[k])}</label>${raw != null ? h.replace('value=""', `value="${esc(raw)}"`) : h}</div>`; }).join('')}</div></td></tr>` : '';
+      return `<tr class="${err[pa] || custErr ? 'has-err' : ''}"><th scope="row" class="rowh" id="rc-${i}-name"><span class="sw" style="background:${curveColor(a, i)}"></span>${esc(name)}</th>
+        <td class="num">${fmt.int(out[a])}</td><td class="num">${total > 0 ? fmt.pct(out[a] / total * 100) : '—'}</td>
+        <td class="cell-in"><span class="sr-only" id="rc-${i}-up-lbl">${esc(`${name} · ${RCL.uptake}`)}</span>${pick}</td></tr>${custom}`;
+    }).join('') + (none ? `<tr><th scope="row" class="rowh">${esc(RCL.noArchetype)}</th><td class="num">${fmt.int(none)}</td><td class="num">${total > 0 ? fmt.pct(none / total * 100) : '—'}</td><td></td></tr>` : '');
+    const errs = Object.keys(err).filter(p => p !== 'responseCurve.customSourceNote').map(p => err[p]);
+    const noteErr = err['responseCurve.customSourceNote'] || '';
+    const note = anyCustom ? `<div class="field mt8" id="rc-note-field"><label class="lbl${noteErr ? ' is-invalid' : ''}" for="rc-note" id="rc-note-lbl">${esc(RCL.sourceNote)}</label>
+        <textarea class="input ta${noteErr ? ' is-invalid' : ''}" id="rc-note" data-rc-note="1" rows="2" aria-required="true" aria-describedby="rc-note-hint" ${noteErr ? 'aria-invalid="true"' : ''} ${ro ? 'disabled' : ''}>${esc(rc.customSourceNote)}</textarea>
+        ${noteErr ? `<div class="err" id="rc-note-hint">${esc(noteErr)}</div>` : `<div class="hint" id="rc-note-hint">${esc(RCL.sourceNoteHelp)}</div>`}</div>` : '';
+    const adv = disclosure({ id: 'rc-adv', act: 'toggleCurveAdv', open: !!state.ui.curveAdvOpen, label: RCL.advanced,
+      body: `<p class="hint mb8">${esc(RCL.advancedHint)}</p><div class="grid-wrap" tabindex="0" role="region" aria-label="${esc(RCL.advanced)}"><table class="grid-t" id="rc-adv-table"><thead><tr><th scope="col">${esc(RCL.archetype)}</th><th scope="col">${esc(RCL.preset)}</th>${RC_PARAMS.map(k => `<th scope="col" class="num">${esc(RCL[k])}</th>`).join('')}<th scope="col" class="num">${esc(RCL.halfOfPeak)}</th></tr></thead>
+        <tbody>${ids.map((a, i) => { const p = r.curveParams[a]; return `<tr><th scope="row" class="rowh">${esc(rcName(a))}</th><td>${esc(uptakeLabel(asg[a]))}</td>${RC_PARAMS.map(k => `<td class="num" id="rc-adv-${i}-${k}">${p ? rawNum(p[k]) : '—'}</td>`).join('')}<td class="num" id="rc-adv-${i}-half">${curveOk(p) ? fmt.num(halfAt(p), 2) : '—'}</td></tr>`; }).join('')}</tbody></table></div>` });
+    return `<div class="curve-blk" id="curve-params"><h3 class="sub-h" id="rc-h">${esc(RCL.uptakeByArchetype)}${rq('FR-44 (proposed)')}${rq('FR-45 (proposed)')}${rq('FR-47 (proposed)')}</h3>
+      <p class="hint">${esc(RCL.uptakeHint)}</p>${vo ? `<p class="hint">${esc(RCL.valueOnlyRowHint)}</p>` : ''}
+      <div class="curve-split"><div><div class="grid-wrap"><table class="grid-t curve-t" id="rc-table" aria-labelledby="rc-h"><thead><tr><th scope="col">${esc(RCL.archetype)}</th><th scope="col" class="num">${esc(cap(grainMany(g)))}</th><th scope="col" class="num">${esc(RCL.share)}</th><th scope="col">${esc(RCL.uptake)}</th></tr></thead>
+        <tbody>${rows}</tbody><tfoot><tr><th scope="row" class="rowh">${esc(RCL.total)}</th><td class="num">${fmt.int(total)}</td><td></td><td></td></tr></tfoot></table></div>
+        ${ids.some(a => !asg[a]) ? `<p class="hint">${esc(RCL.notAssignedHelp)}</p>` : ''}${anyCustom ? `<p class="hint">${esc(RCL.customHint)}</p>` : ''}
+        ${errs.length ? `<div class="err" role="alert" id="rc-errors"><ul class="plain">${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+        ${note}</div>
+        <div class="curve-plot" id="curve-plot" aria-live="polite">${curvePlotSvg(r)}${curveLegend(r)}</div></div>
+      <div class="mt16">${adv}</div></div>`;
+  }
+  /* Uptake change for one archetype: one audit row (old → new). Switching to Custom starts from the previous preset's values. */
+  function rcAssign(a, v) {
+    if (readOnly() || method() !== 'response') return;
+    const rc = state.responseCurve, from = (ownKey(rc.assignment, a) && rc.assignment[a]) || null;
+    if (v === from) return;
+    if (v === RC_CUSTOM ? rcFlags().allowCustomCurve === false : !rcPresets().some(p => p.id === v)) return;
+    if (v === RC_CUSTOM && !rc.custom[a]) { const p = rcPresets().find(x => x.id === from); rc.custom[a] = p ? { delta: p.delta, gamma: p.gamma, rho: p.rho } : { delta: null, gamma: null, rho: null }; }
+    rc.assignment[a] = v;
+    audit('assumption', RCL.audit.uptakeChange(rcName(a), from ? uptakeLabel(from) : RCL.audit.blank, uptakeLabel(v)));
+  }
+  /* Custom δ/γ/ρ and the source note: the store updates as you type (chart live); the audit row is written on commit. */
+  const rcText = v => (v === '' || v == null ? RCL.audit.blank : v);
+  /* What was typed into a Custom value that is not a number, so it stays visible (with its error) after a re-render. */
+  const rcRawKey = (a, k) => `${a}\u0000${k}`;
+  const rcRawOf = (a, k) => { const v = (state.ui.rcRaw || {})[rcRawKey(a, k)]; return v === undefined ? null : v; };
+  const rcFmtOf = (a, k) => (state.ui.rcFmt || {})[rcRawKey(a, k)] || null;
+  /* Fix 1: Custom δ/γ/ρ follow the configurator's plain-decimal rule (FSConfigurator.DECIMAL): only the ends are trimmed;
+     digits with an optional decimal point; commas, inner spaces, exponents, hex and signs are rejected with the P3 messages.
+     Blank is null (reported as "must be a number above 0"); the app's general parseNum is unchanged for every other field. */
+  const RC_DECIMAL = (W.FSConfigurator && W.FSConfigurator.DECIMAL) || /^(\d+(\.\d*)?|\.\d+)$/;
+  function rcDecimal(raw, k) {
+    const t = String(raw == null ? '' : raw).trim();
+    if (t === '') return { value: null };
+    if (t.includes(',')) return { value: NaN, error: RCL.presetValueComma(RCL[k]) };
+    if (!RC_DECIMAL.test(t)) return { value: NaN, error: RCL.presetValuePlainDecimal(RCL[k]) };
+    return { value: Number(t) };
+  }
+  function rcInput(el) {
+    if (readOnly()) return;
+    const rc = state.responseCurve;
+    if (el.dataset.rcNote) { rc.customSourceNote = el.value; return; }
+    const a = curveArchetypes()[+el.dataset.rcArch], k = el.dataset.rcParam;
+    if (a == null || !RC_PARAMS.includes(k)) return;
+    const p = rcDecimal(el.value, k), raw = state.ui.rcRaw || (state.ui.rcRaw = {}), fe = state.ui.rcFmt || (state.ui.rcFmt = {});
+    (rc.custom[a] = rc.custom[a] || {})[k] = p.value;
+    if (p.error) { raw[rcRawKey(a, k)] = el.value; fe[rcRawKey(a, k)] = p.error; } else { delete raw[rcRawKey(a, k)]; delete fe[rcRawKey(a, k)]; }
+    refreshCurve();
+  }
+  function rcCommit(el) {
+    if (readOnly()) return;
+    const orig = el.dataset.orig != null ? el.dataset.orig : '';
+    if (el.value === orig) return;
+    if (el.dataset.rcNote) { audit('assumption', RCL.audit.sourceNote(rcText(orig), rcText(el.value))); return; }
+    const a = curveArchetypes()[+el.dataset.rcArch], k = el.dataset.rcParam;
+    if (a == null || !RC_PARAMS.includes(k)) return;
+    audit('assumption', RCL.audit.customValue(rcName(a), RCL[k], rcText(orig), rcText(el.value)));
+    el.dataset.orig = el.value;
+  }
+  /* Sample loads seed the uptake from FSSample.responseCurveSeed(kind); an empty seed takes the configuration's default
+     assignment for the archetypes in the data. New data (import, AI adoption) keeps the project's choices and fills only
+     the archetypes with no uptake yet from the default assignment; others stay unassigned (no hidden default). */
+  function fillDefaultUptake() {
+    const rc = state.responseCurve, da = (state.config && state.config.defaultAssignment) || {};
+    dataArchetypes().forEach(a => { if (!(ownKey(rc.assignment, a) && rc.assignment[a]) && ownKey(da, a) && da[a]) rc.assignment[a] = da[a]; });
+  }
+  function seedResponseCurve(kind) {
+    const s = SAMPLE && SAMPLE.responseCurveSeed ? SAMPLE.responseCurveSeed(kind) : null;
+    state.responseCurve = Object.assign(blankResponseCurve(), s ? clone(s) : {});
+    state.ui.rcRaw = {}; state.ui.rcFmt = {};
+    if (!Object.keys(state.responseCurve.assignment).length) fillDefaultUptake();
+  }
+  /* §6.4: a snapshot's uptake per archetype (from the inputs it was calculated with), Custom with its source note, and the
+     configuration version. null for a non-response snapshot. */
+  /* The archetypes a snapshot's inputs carry (entity rows, else segment mixes / single archetypes), reference ones first. */
+  function inputArchetypes(i) {
+    const seen = [];
+    if (Array.isArray(i.entities) && i.entities.length) i.entities.forEach(e => addArch(seen, e && e.archetype));
+    else (i.segments || []).forEach(x => { if (x && x.archetypeMix) Object.keys(x.archetypeMix).forEach(a => addArch(seen, a)); else if (x) addArch(seen, x.archetype); });
+    return refFirst(seen);
+  }
+  const sameCurve = (p, q) => !!p && !!q && RC_PARAMS.every(k => p[k] === q[k]);
+  /* How a snapshot's archetype got its curve: preset label, Custom with its note, or (an earlier draft without uptake
+     choices, F5) the reference curve or an edited curve. */
+  function curveSourceText(o, a) {
+    const p = (o.curveProvenance || {})[a];
+    if (p) return p.source === 'custom' ? RCL.customWithNote(o.customSourceNote || '') : p.label || p.presetId;
+    return sameCurve(E.archetypesFor(o)[a], E.ARCHETYPES[a]) ? RCL.referenceCurve : RCL.editedCurve;
+  }
+  const snapArchetypes = i => { const o = i.methodAssumptions || {}, ids = inputArchetypes(i); Object.keys(o.curveParams || {}).forEach(a => addArch(ids, a)); return ids; };
+  /* §6.4: a snapshot's uptake per archetype (from the inputs it was calculated with) and the configuration version. null for
+     a non-response snapshot. */
+  function uptakeSummary(s) {
+    const i = s.inputs || {}, o = i.methodAssumptions || {};
+    if (i.method !== 'response') return null;
+    const lines = snapArchetypes(i).map(id => RCL.curveLegendPreset(rcName(id), curveSourceText(o, id)));
+    if (s.responseCurveConfig && isNum(s.responseCurveConfig.version)) lines.push(RCL.configVersionText(s.responseCurveConfig.version));
+    return lines;
+  }
+  /* F1 (fix 2): an earlier draft saved without an uptake (no snapshot.responseCurve). Archetypes whose stored curve is the
+     engine's reference curve stay on the reference path (no uptake, exactly as before). Any other stored curve becomes a
+     Custom assignment with the effective δ/γ/ρ the engine used (missing values from the reference) and the FSFields
+     carry-over note; a stored preset provenance whose preset still has the same values is kept as that preset. */
+  function legacyResponseCurve(o) {
+    const rc = blankResponseCurve(), A = E.archetypesFor(o), pv = o.curveProvenance || {};
+    const cp = o.curveParams && typeof o.curveParams === 'object' && !Array.isArray(o.curveParams) ? o.curveParams : {};
+    Object.keys(cp).forEach(a => {
+      const eff = A[a], p = pv[a];
+      if (!eff) return;
+      if (!p && sameCurve(eff, E.ARCHETYPES[a])) return;
+      const preset = p && p.source === 'preset' ? rcPresets().find(x => x.id === p.presetId) : null;
+      if (preset && sameCurve(preset, eff)) { rc.assignment[a] = preset.id; return; }
+      rc.assignment[a] = RC_CUSTOM; rc.custom[a] = { delta: eff.delta, gamma: eff.gamma, rho: eff.rho };
+    });
+    if (Object.keys(rc.assignment).some(a => rc.assignment[a] === RC_CUSTOM))
+      rc.customSourceNote = typeof o.customSourceNote === 'string' && o.customSourceNote.trim() ? o.customSourceNote : RCL.carriedOverNote;
+    return rc;
   }
   const CS7_TEXT = 'Response Curve needs behavioural response curves: a curve archetype for each HCP or segment, supplied with the Segmentation & Targeting data. Value-only segmentation is not yet supported for Response Curve, and no default curve is assumed. Use Affordable Coverage for value-only segmentation.';
-  const respValueOnly = () => method() === 'response' && state.respSegType === 'value';
   /* CS-2 / CS-5: reallocation is the one remaining methodology choice, shown with the main assumptions (Affordable, Response). */
   function reallocControl() {
     const o = ma();
@@ -1196,7 +1421,7 @@
       segType = `${radioGroup({ name: 'segType', label: 'Segmentation type', value: state.respSegType, onAct: 'segType', describe: true, inline: true, options: [
           { value: 'value', label: 'Value only', desc: 'Deciles by value, no behavioural dimension.' },
           { value: 'behaviour', label: 'Value + behaviour', desc: 'Value deciles plus curve archetypes with their response curves.' }] })}
-        ${respValueOnly() ? msg('warning', esc(CS7_TEXT), { title: 'Response Curve needs behavioural curves', id: 'cs7-msg' }) : archetypeSummary() + curveBlock()}<div class="sep"></div>`;
+        ${valueOnlyBlocked() ? msg('warning', esc(CS7_TEXT), { title: 'Response Curve needs behavioural curves', id: 'cs7-msg' }) : uptakeSection()}<div class="sep"></div>`;
     }
     const realloc = '<div class="sep"></div>' + reallocControl();
     return card({ id: 'c-method-a', title: `Method-specific: ${methodLabel(m)}`, sub: esc(F.METHODS[m].question), body: segType + valueBlock() + '<div class="sep"></div>' + alloc + '<div class="sep"></div>' + specific + realloc });
@@ -1243,7 +1468,9 @@
       chk(o.reachAppliesTo && o.reachAppliesTo !== DEFAULTS.reachAppliesTo, OL('reachAppliesTo')[o.reachAppliesTo]);
       chk(o.maxCallsSource && o.maxCallsSource !== DEFAULTS.maxCallsSource, OL('maxCallsSource')[o.maxCallsSource]);
       /* 2026-10-12: edited response curve parameters are a non-default assumption. */
-      const ce = Object.keys(o.curveParams || {}).filter(a => { const r = E && E.ARCHETYPES && E.ARCHETYPES[a], u = o.curveParams[a] || {}; return r && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); });
+      /* P4: only an older draft's provenance-less curve edits; an uptake preset or a Custom curve is an assumption, shown with the uptake. */
+      const pvs = o.curveProvenance || {};
+      const ce = Object.keys(o.curveParams || {}).filter(a => { const r = E && E.ARCHETYPES && E.ARCHETYPES[a], u = o.curveParams[a] || {}; return r && !pvs[a] && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); });
       chk(ce.length, `Curve parameters edited (${ce.join(', ')})`);
     }
     return out;
@@ -1311,7 +1538,7 @@
     const aiWait = aiPendingCount();
     if (aiWait) issues.push({ where: 'AI values', message: `${plural(aiWait, 'AI value')} still pending. Accept, edit or reject each one first.` });
     const inp = buildInputs();
-    if (respValueOnly()) issues.push({ where: 'Segmentation type', message: CS7_TEXT, target: 'c-method-a' });
+    if (valueOnlyBlocked()) issues.push({ where: 'Segmentation type', message: CS7_TEXT, target: 'c-method-a' });
     if (valueMode() === 'chain' && method() !== 'workload' && !isNum(ma().value.sizingStartYear)) issues.push({ where: 'Sizing start year', message: 'Enter the sizing start year; no default is assumed.', path: 'methodAssumptions.value.sizingStartYear', target: 'v-start' });
     const mine = new Set();
     state.segments.forEach((s, i) => visibleFields().filter(f => f.owner === 'sizing').forEach(f => {
@@ -1319,9 +1546,16 @@
       const e = s[f.id] == null ? `${lbl} is required` : liveCellError(s, f.id);
       if (e) { issues.push({ where: `Segment ${s.segment} · ${lbl}`, message: e, path }); mine.add(path); }
     }));
+    /* P4: uptake per archetype, against its row. The engine's custom-curve and source-note errors are the same rules (shown
+       once, from the row); its unknown-archetype / value-only errors restate a missing uptake already listed here. */
+    const cIss = curveIssues();
+    cIss.forEach(x => { issues.push({ where: x.where, message: x.message, path: x.path, target: x.target }); mine.add(x.path); });
+    const rowCovered = cIss.some(x => x.unassigned || /^responseCurve\.assignment\./.test(x.path));
+    const covered = e => method() === 'response' && (e.code === 'custom-curve-invalid' || e.code === 'custom-source-missing'
+      || (rowCovered && (e.code === 'unknown-archetype' || (e.code === 'response-needs-entity-or-mix' && valueOnlyRuns()) || mixTotalFromUptake(e))));
     const v = safe(() => E.validate(inp), { errors: [{ code: 'engine', path: '', message: 'Validation is unavailable.' }], warnings: [] });
     /* F5: forecast-split errors carry raw amounts in the engine's text; they are reworded with the app's currency formatter. */
-    v.errors.filter(e => !mine.has(e.path)).forEach(e => issues.push({ where: issueWhere(e), message: engineErrText(e), path: e.path }));
+    v.errors.filter(e => !mine.has(e.path) && !covered(e)).forEach(e => issues.push({ where: issueWhere(e), message: engineErrText(e), path: e.path }));
     const at = nowIso();
     state.checkRuns.assumptions = { at, issues, warnings: v.warnings };
     if (!issues.length) { state.checkpoints.assumptions = { sig: assumptionsSig(), at }; audit('checkpoint', 'Assumptions check passed'); }
@@ -1600,7 +1834,7 @@
     if (stageStatus('result') === 'locked') return lockedView('result');
     const r = state.result, current = resultIsCurrent();
     const asOk = stageStatus('assumptions') === 'complete';
-    const reason = readOnly() ? 'Read-only role' : respValueOnly() ? 'Response Curve needs value + behaviour segmentation (see Model Assumptions)' : !asOk ? 'Pass the assumptions check on Model Assumptions first' : '';
+    const reason = readOnly() ? 'Read-only role' : valueOnlyBlocked() ? 'Response Curve needs value + behaviour segmentation (see Model Assumptions)' : !asOk ? 'Pass the assumptions check on Model Assumptions first' : '';
     const calcBtn = btn({ label: r ? 'Recalculate' : 'Calculate FTE', act: 'calculate', kind: 'primary', ic: r ? 'refresh' : 'calc', id: 'calc', reason });
     let top = card({ id: 'c-calc', title: 'Calculation', sub: `Deterministic: the same inputs always give the same field size. Method: ${esc(methodLabel(method()))}.`, actions: calcBtn,
       body: !r ? `<p class="muted">Nothing calculated yet. Calculate to see the field size and how it was reached.</p>` : `<p class="muted">Last calculated ${fmtTime(state.resultAt)} with ${esc(r.engineVersion)}.</p>` });
@@ -1700,8 +1934,12 @@
     const fc = m !== 'workload' && Array.isArray(v.years) && v.years.length ? `<h3 class="sub-h">Brand forecast and value build-up</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">Year</th><th scope="col" class="num">Brand forecast</th><th scope="col" class="num">Carryover into year</th><th scope="col" class="num">Other channels</th><th scope="col" class="num">${esc(IMP_LABEL)} (entered)</th></tr></thead><tbody>${v.years.map(y => `<tr><th scope="row" class="rowh">${esc(String(y.year))}</th><td class="num">${fmt.money(y.forecast)}</td><td class="num">${fmt.pct(y.carryoverPct)}</td><td class="num">${fmt.pct(y.otherChannelPct)}</td><td class="num">${isNum(y.sfPct) ? fmt.pct(y.sfPct) : '<span class="muted">blank</span>'}</td></tr>`).join('')}</tbody></table></div>` : '';
     let curves = '';
     if (m === 'response' && E && E.archetypesFor) {
-      const A = E.archetypesFor(o), R = E.ARCHETYPES;
-      curves = `<h3 class="sub-h">Response curve parameters</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">Shape (γ)</th><th scope="col" class="num">Saturation (ρ)</th><th scope="col" class="num">Reference γ / ρ</th></tr></thead><tbody>${Object.keys(A).map(a => `<tr><th scope="row" class="rowh">${esc(a)}</th><td class="num">${fmt.num1(A[a].gamma)}</td><td class="num">${fmt.num1(A[a].rho)}</td><td class="num muted">${esc(String(R[a].gamma))} / ${esc(String(R[a].rho))}</td></tr>`).join('')}</tbody></table></div>`;
+      /* P4 (§6.4): uptake per archetype with the effective δ/γ/ρ (archetypes from the snapshot's curves; an older snapshot
+         without curves used the reference curves) and the configuration version. */
+      const A = E.archetypesFor(o), list = snapArchetypes(i);
+      const cfgV = sc.responseCurveConfig && isNum(sc.responseCurveConfig.version) ? `<p class="muted">${esc(RCL.configVersionText(sc.responseCurveConfig.version))}</p>` : '';
+      curves = `<h3 class="sub-h">${esc(RCL.summaryHeading)}</h3>${cfgV}<div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">${esc(RCL.archetype)}</th><th scope="col">${esc(RCL.preset)}</th>${RC_PARAMS.map(k => `<th scope="col" class="num">${esc(RCL[k])}</th>`).join('')}<th scope="col" class="num">${esc(RCL.halfOfPeak)}</th></tr></thead><tbody>${list.map(a => { const c = A[a] || {};
+        return `<tr><th scope="row" class="rowh">${esc(rcName(a))}</th><td>${esc(curveSourceText(o, a))}</td>${RC_PARAMS.map(k => `<td class="num">${esc(rawNum(c[k]))}</td>`).join('')}<td class="num">${curveOk(c) ? fmt.num(halfAt(c), 2) : '—'}</td></tr>`; }).join('')}</tbody></table></div>`;
     }
     const segs = i.segments || [];
     const sc2 = m === 'workload' ? [['reachPct', 'Reach %', x => fmt.pct(x)], ['plannedCalls', 'Planned calls', x => fmt.int(x)]]
@@ -1740,6 +1978,8 @@
     ];
     /* Origin row only when an AI-proposed snapshot exists, so an AI-free comparison is unchanged. */
     if (list.some(s => s.ai)) rows.splice(1, 0, ['Origin', s => esc(aiOriginText(s))]);
+    /* P4 (§6.4): uptake per archetype (Custom with its source note) and the configuration version, when a Response Curve snapshot is compared. */
+    if (list.some(s => s.inputs.method === 'response')) rows.splice(rows.findIndex(r => r[0] === 'All assumptions'), 0, [RCL.summaryHeading, s => { const l = uptakeSummary(s); return !l ? esc(RCL.notApplicable) : l.length ? l.map(esc).join('<br>') : '—'; }]);
     const n = list.length + 1;
     const head = list.map(s => `<th scope="col" class="cmp-col"><span class="cmp-name">${esc(s.name)}</span><span class="cmp-meta">${esc(s.id)} · v${s.version}${s.parentId ? ` · from ${esc(s.parentId)}` : ''}</span></th>`).join('');
     const body = rows.map(([k, fn, tip]) => (fn ? `<tr><th scope="row" class="rowh"${tip ? ` title="${esc(tip)}"` : ''}>${esc(k)}</th>${list.map(s => `<td>${fn(s)}</td>`).join('')}</tr>` : `<tr class="cmp-sec"><th scope="colgroup" colspan="${n}">${esc(k)}</th></tr>`)).join('');
@@ -1829,6 +2069,7 @@
           ${i.method === 'affordable' ? kv('Total ROI cutoff', fmt.num(o.totalRoiCutoff, 2)) : ''}
           ${i.method !== 'workload' ? kv('Value from excluded segments', esc(reallocText(s))) : ''}
           ${o.value && Array.isArray(o.value.years) ? kv('Forecast inputs', esc(fcInputsText(o.value))) : ''}
+          ${i.method === 'response' ? kv(RCL.summaryHeading, (uptakeSummary(s) || []).map(esc).join('<br>') || '—') : ''}
           ${kv('Capacity', esc(capText(i.shared)))}${kv('Cost', i.shared.repCost == null ? 'Not supplied' : esc(F.OPTION_LABELS.costMode[i.shared.costMode]))}
           ${kv('Methodology', nd.length ? `${nonDefaultChip(nd)} ${esc(nd.join('; '))}` : 'Standard method')}</dl>
         <dl class="kvs"><div class="kvs-h">Data and notes</div>
@@ -1867,7 +2108,7 @@
       : msg('neutral', 'No scenario is marked as recommended yet. Review works on the recommended snapshot, never on the working model.', { title: 'Nothing to review', actions: btn({ label: 'Go to Scenario Summary', act: 'nav', arg: 'scenarios', kind: 'primary', id: 'rv-go' }) });
     const panel = `<div role="tabpanel" id="panel-${tab}" aria-labelledby="tab-${tab}" tabindex="0" class="tabpanel">${tab === 'summary' ? summary : auditTable()}</div>`;
     const exp = card({ id: 'c-export', title: 'Export to Excel', sub: 'A multi-sheet workbook with assumptions, source and mapping, segment detail, scenario comparison and the audit record, with live formulas.',
-      actions: btn({ label: 'Export workbook', act: 'export', kind: 'primary', ic: 'download', id: 'export', reason: !focus ? 'Save a scenario first' : '' }),
+      actions: rq('FR-48 (proposed)') + btn({ label: 'Export workbook', act: 'export', kind: 'primary', ic: 'download', id: 'export', reason: !focus ? 'Save a scenario first' : '' }),
       body: focus ? `<p class="muted">Exports <strong>${esc(focus.name)}</strong> ${rec ? '(the recommended snapshot)' : '(latest snapshot; none is recommended yet)'} together with all ${plural(state.scenarios.length, 'scenario')} and the audit trail, as <span class="mono">field-sizing-${esc(slug(focus.name))}.xlsx</span>. ${focus.status === 'approved' ? '' : `Status in the workbook: ${esc(STATUS[focus.status].label)}.`}</p>` : '' });
     return roleCard + card({ id: 'c-review', body: tablist + panel }) + aiReviewerCard(rec) + exp;
   };
@@ -2141,39 +2382,28 @@
   const RCL = (F && F.RESPONSE_CURVE_LABELS) || {};
   const presetSampleBtn = () => (SAMPLE && SAMPLE.presetSample ? btn({ label: RCL.samplePresetsButton, act: 'loadSamplePresets', kind: 'text', ic: 'file', id: 'load-sample-presets' }) : '');
   function loadSampleProject(kind) {
-    if (kind === 'presets' && SAMPLE.presetSample) return loadPresetSampleProject();
-    const multi = kind === 'multi' && !!SAMPLE.multiSpecialty;
-    const p = clone(multi ? SAMPLE.multiSpecialty.project : SAMPLE.project);
-    state.project = Object.assign(blankProject(), p, { method: 'affordable' });
+    /* One loader for the three synthetic samples ('multi', 'presets', else the single 10-decile sample). The response curve
+       uptake is seeded per sample (FSSample.responseCurveSeed) and resolved from state.config at build time (I-2, I-4). */
+    const multi = kind === 'multi' && !!SAMPLE.multiSpecialty, presets = kind === 'presets' && !!SAMPLE.presetSample;
+    const src = multi ? SAMPLE.multiSpecialty : presets ? SAMPLE.presetSample : SAMPLE;
+    state.project = Object.assign(blankProject(), clone(src.project), { method: 'affordable' });
     state.shared = Object.assign(blankShared(), SAMPLE.shared()); state.repCostByMode = {};
     if (SAMPLE.capacityInput) { state.shared.capacityInput = SAMPLE.capacityInput(); state.shared.capacity = null; }   // CS-5: days × calls per day
     aiClearStores();   // F-R2-10: the sample rewrites every store below; nothing AI-written may survive in them
     const md = methodDefaults();
     METHOD_IDS.forEach(m => { state.methodStore[m] = Object.assign(md[m], SAMPLE.methodAssumptions(m)); if (state.methodStore[m].value) state.methodStore[m].value = Object.assign(blankValue(), SAMPLE.methodAssumptions(m).value); });
     state.ui.sizeSpec = null; state.ui.resSpec = null; state.ui.dataSpec = null; state.respSegType = 'behaviour';
+    if (presets) {
+      setManualData(mergedSampleRows('presets'), RCL.samplePresetsData);
+      seedResponseCurve('presets');
+      audit('project', RCL.samplePresetsAudit);
+      toast(RCL.samplePresetsToast, 'success');
+      return;
+    }
     setManualData(mergedSampleRows(multi ? 'multi' : null), multi ? 'Synthetic multi-specialty sample data' : 'Synthetic sample data');
+    seedResponseCurve(multi ? 'multi' : 'single');
     audit('project', multi ? `Synthetic multi-specialty sample project loaded (${plural(specialtiesOf().length, 'specialty', 'specialties')} × 10 deciles)` : 'Synthetic sample project loaded');
     toast(multi ? 'Synthetic multi-specialty sample loaded. Run the inputs check to continue.' : 'Synthetic sample project loaded. Run the inputs check to continue.', 'success');
-  }
-  /* Loads like the multi sample. Bridge until P4: the response store gets curveParams/curveProvenance resolved from the
-     configuration's default assignment, so the sample runs end to end. */
-  function loadPresetSampleProject() {
-    const PS = SAMPLE.presetSample;
-    state.project = Object.assign(blankProject(), clone(PS.project), { method: 'affordable' });
-    state.shared = Object.assign(blankShared(), SAMPLE.shared()); state.repCostByMode = {};
-    if (SAMPLE.capacityInput) { state.shared.capacityInput = SAMPLE.capacityInput(); state.shared.capacity = null; }
-    aiClearStores();
-    const md = methodDefaults();
-    METHOD_IDS.forEach(m => { state.methodStore[m] = Object.assign(md[m], SAMPLE.methodAssumptions(m)); if (state.methodStore[m].value) state.methodStore[m].value = Object.assign(blankValue(), SAMPLE.methodAssumptions(m).value); });
-    const cfg = F.RESPONSE_CURVE_CONFIG;
-    if (E && E.resolveCurves && cfg && state.methodStore.response) {
-      const rc = E.resolveCurves(cfg.defaultAssignment, cfg.presets, {});
-      state.methodStore.response.curveParams = rc.curveParams; state.methodStore.response.curveProvenance = rc.provenance;
-    }
-    state.ui.sizeSpec = null; state.ui.resSpec = null; state.ui.dataSpec = null; state.respSegType = 'behaviour';
-    setManualData(mergedSampleRows('presets'), RCL.samplePresetsData);
-    audit('project', RCL.samplePresetsAudit);
-    toast(RCL.samplePresetsToast, 'success');
   }
   function startImport(buf, fileName) {
     const m = method();
@@ -2215,6 +2445,7 @@
       state.segments = (ap.segments || []).map(r => Object.assign(blankRow(r.segment), r));
       state.entities = ap.entities && ap.entities.length ? ap.entities : null;
       state.inputGrain = fl.inputGrain; state.corrections = [];
+      fillDefaultUptake();   // P4: archetypes new to the project start with the configuration's default uptake, if it has one
       const mapHeads = {}; Object.keys(fl.usedMapping).forEach(k => { mapHeads[k] = heads[fl.usedMapping[k]]; });
       const tabsOn = !!(fl.tabsOn && fl.tabs);
       state.provenance = { path: 'file', fileName: fl.fileName, sheet: tabsOn ? fl.tabs.join(', ') : flowSheet().name, headerRow: fl.headerRow, inputGrain: fl.inputGrain, mapping: mapHeads, importedAt: nowIso(), rowCount: ap.rowCount, warnings: (ap.warnings || []).map(w => w.message) };
@@ -2244,14 +2475,25 @@
       state.valueMode[inp.method] = isNum(v.annualValue) ? 'direct' : 'chain';
       const merged = Object.assign(methodDefaults()[inp.method], inp.methodAssumptions);
       merged.value = Object.assign(blankValue(), state.ai.touched[inp.method] ? {} : state.methodStore[inp.method].value, v);   // F-R2-10: no hidden AI-written chain
+      delete merged.curveParams; delete merged.curveProvenance; delete merged.customSourceNote;   // P4: curves come only from the uptake below
       state.methodStore[inp.method] = merged;
     }
+    /* P4 (I-4): the snapshot's configuration and uptake come back with it. An older snapshot without them keeps the current
+       configuration and starts with no uptake: its inputs carry no provenance, so the engine used the reference curves. */
+    if (s.responseCurveConfig) state.config = clone(s.responseCurveConfig);
+    state.responseCurve = Object.assign(blankResponseCurve(), s.responseCurve ? clone(s.responseCurve) : inp.method === 'response' ? legacyResponseCurve(inp.methodAssumptions || {}) : {}); state.ui.rcRaw = {}; state.ui.rcFmt = {};
+    if (inp.method === 'response') state.respSegType = ownKey((inp.methodAssumptions || {}).curveParams, RC_ALL) ? 'value' : 'behaviour';
     state.provenance = clone(s.provenance); state.corrections = clone(s.corrections || []);
     state.parentId = s.id; state.objective = s.objective || state.objective; state.draftName = null;
     state.result = clone(s.result); state.resultInputs = clone(s.inputs); state.resultAt = s.createdAt;
     const at = nowIso();
     state.checkpoints.inputs = { sig: inputsSig(), at }; state.checkpoints.assumptions = { sig: assumptionsSig(), at };
     state.resultSig = assumptionsSig();
+    /* F1 (fix 2): an earlier draft's result stays current only if the rebuilt inputs reproduce it exactly; else it is stale. */
+    if (!s.responseCurve && inp.method === 'response') {
+      const re = safe(() => E.calculate(buildInputs()), null), key = r => JSON.stringify(r && [r.errors, r.totals, r.segments]);
+      if (!re || key(re) !== key(s.result)) state.resultSig = null;
+    }
     state.checkRuns = { inputs: null, assumptions: null };
     aiAfterClone(s);
     audit('clone', `Cloned “${s.name}” to a new working draft`, s.id);
@@ -2264,6 +2506,7 @@
     const draft = {
       id: 'SC-' + String(v).padStart(3, '0'), name, version: v, parentId: state.parentId, createdAt: nowIso(), createdBy: curUser().name,
       objective: state.objective, inputs: buildInputs(), result: clone(state.result), provenance: clone(state.provenance), corrections: clone(state.corrections),
+      responseCurveConfig: clone(state.config), responseCurve: clone(state.responseCurve),   // P4 (I-4, FR-48): configuration and uptake as saved
       status: 'draft', recommended: false, recommendationNote: null, recommendedBy: null, recommendedRole: null, approvedBy: null, approvedAt: null
     };
     const aiTag = aiSnapshotTag(draft);   // contract §3 snapshot.ai, only when the draft came from an adopted candidate
@@ -2280,7 +2523,7 @@
     const fileName = `field-sizing-${slug(focus.name)}.xlsx`;
     audit('export', `Exported ${fileName}`, focus.id);
     let out;
-    const args = { project: clone(state.project), scenarios: state.scenarios, focusScenarioId: focus.id, audit: state.audit.slice() };
+    const args = { project: clone(state.project), scenarios: state.scenarios, focusScenarioId: focus.id, audit: state.audit.slice(), config: clone(state.config) };
     aiExportArgs(args);   // adds narratives / proposalSets only when AI was used; an AI-free export gets the baseline arguments
     try { out = IO.exportWorkbook(args); }
     catch (e) { toast(`Export failed: ${(e && e.message) || e}`, 'error'); return; }
@@ -2294,7 +2537,7 @@
     }).catch(e => toast(`Export failed: ${(e && e.message) || e}`, 'error'));
   }
   function calculateNow() {
-    if (respValueOnly()) { toast('Response Curve needs value + behaviour segmentation.', 'warning'); return null; }
+    if (valueOnlyBlocked()) { toast('Response Curve needs value + behaviour segmentation.', 'warning'); return null; }
     const inp = buildInputs();
     const r = safe(() => E.calculate(inp), null);
     if (!r) { toast('The engine failed to run.', 'error'); return null; }
@@ -2340,14 +2583,7 @@
   /* ================================================================== actions */
   const toggle = key => () => { state.ui[key] = !state.ui[key]; render(); };
   Object.assign(acts, {
-    curveReset: () => {
-      const o = ma(); if (!o || readOnly()) return;
-      const edited = ARCH_NAMES().filter(curveEdited);
-      delete o.curveParams;
-      aiManualEdit(['methodAssumptions.curveParams']);
-      audit('assumption', `Response curve parameters reset to the reference values${edited.length ? ` (${edited.join(', ')})` : ''}`);
-      focusAfter('curve-params'); render();
-    },
+    toggleCurveAdv: () => { state.ui.curveAdvOpen = !state.ui.curveAdvOpen; focusAfter('rc-adv-btn'); render(); },
     drawer: () => { state.drawerOpen = !state.drawerOpen; focusAfter('hamburger'); render(); },
     nav: el => {
       const id = el.dataset.arg;
@@ -2366,7 +2602,7 @@
     },
     pickFile: () => { if (!readOnly()) pickFile(); },
     sampleFile: el => sampleFileFor(el.dataset.arg),
-    manualSample: () => aiGuard('new data loaded', () => confirmReplace(() => { state.ui.dataSpec = null; state.ui.sizeSpec = null; state.ui.resSpec = null; setManualData(mergedSampleRows(), 'Synthetic sample values'); })),
+    manualSample: () => aiGuard('new data loaded', () => confirmReplace(() => { state.ui.dataSpec = null; state.ui.sizeSpec = null; state.ui.resSpec = null; setManualData(mergedSampleRows(), 'Synthetic sample values'); seedResponseCurve('single'); })),
     wizGo: el => {
       const to = el.dataset.arg, fl = state.importFlow;
       if (to === 'preview') { wizApply(); audit('mapping', `Mapping reviewed for ${fl.fileName}`); }
@@ -2447,7 +2683,7 @@
     /* CS-2 / CS-5: the visible "Value from excluded segments" control (audit row as the FTE Calculation Apply / Turn off). */
     realloc: v => { const on = v === 'true'; ma().reallocateExcluded = on; state.ui.reallocPreview = null; state.ui.reallocKept = null; audit('assumption', `${REALLOC_LABEL}: ${on ? OL('reallocateExcluded').true || 'On' : OL('reallocateExcluded').false || 'Off'}${on === DEFAULTS.reallocateExcluded ? ' (default)' : ''} (set on Model Assumptions)`); },
     /* CS-7: Response Curve segmentation type. Value only is explained and blocks the calculation; nothing is invented. */
-    segType: v => { if (v !== 'value' && v !== 'behaviour') return; state.respSegType = v; audit('assumption', `Segmentation type: ${v === 'value' ? 'Value only (Response Curve not available)' : 'Value + behaviour'}`); }
+    segType: v => { if (v !== 'value' && v !== 'behaviour') return; state.respSegType = v; audit('assumption', `Segmentation type: ${v === 'value' ? (rcFlags().allowValueOnlyResponse === true ? RCL.segTypeValueOnlyAllowed : 'Value only (Response Curve not available)') : 'Value + behaviour'}`); }
   };
   /* ================================================================== AI ASSIST (simulated, contract §7)
      FSAssist proposes and explains; FSEngine calculates; a person decides. FSAssist never sees `state`: it gets plain
@@ -2816,6 +3052,7 @@
       return row;
     });
     state.entities = ds.entities ? clone(ds.entities) : null;
+    fillDefaultUptake();   // P4: as for an import, archetypes new to the project start with the configuration's default uptake
     state.shared = Object.assign(blankShared(), inp.shared, { layers: Object.assign(blankShared().layers, inp.shared.layers || {}) }); state.repCostByMode = {};
     if (m === 'workload') state.workloadCost = inp.shared.repCost != null;
     else {
@@ -3430,7 +3667,8 @@
   }
   function onInput(ev) {
     const el = ev.target;
-    if (el.dataset.bind) { setPath(el.dataset.bind, el.dataset.kind === 'num' ? parseNum(el.value) : el.value); if (/^ma\.curveParams\./.test(el.dataset.bind)) refreshCurve(); return; }
+    if (el.dataset.bind) { setPath(el.dataset.bind, el.dataset.kind === 'num' ? parseNum(el.value) : el.value); return; }
+    if (el.dataset.rcArch != null || el.dataset.rcNote) { rcInput(el); return; }
     if (el.dataset.apply) { (state.ui.specApply = state.ui.specApply || {})[el.dataset.apply] = el.value; return; }
     if (el.dataset.seg != null) {
       const s = state.segments[+el.dataset.seg], f = el.dataset.field;
@@ -3441,6 +3679,7 @@
   function onChange(ev) {
     const el = ev.target;
     if (el.dataset.cfg != null) { configChange(el); return; }
+    if (el.dataset.rcArch != null || el.dataset.rcNote) { rcCommit(el); renderSoon(); return; }
     if (el.dataset.radio) {
       const a = el.dataset.radio;
       aiManualEdit(aiRadioPaths(a));
@@ -3472,7 +3711,7 @@
       renderSoon();
     }
   }
-  function onFocusIn(ev) { const el = ev.target; if (el.dataset && (el.dataset.bind || el.dataset.seg != null)) el.dataset.orig = el.value; }
+  function onFocusIn(ev) { const el = ev.target; if (el.dataset && (el.dataset.bind || el.dataset.seg != null || el.dataset.rcArch != null || el.dataset.rcNote)) el.dataset.orig = el.value; }
   function onKey(ev) {
     if (lb) {
       const n = lb.el.querySelectorAll('[role=option]').length;

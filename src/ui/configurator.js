@@ -300,7 +300,7 @@
     const np = opts.some(o => o.value === ui.newPreset) ? ui.newPreset : (opts[0] || {}).value;
     ui.newPreset = np;
     return `<p class="hint" id="cfg-da-hint">${esc(R.defaultAssignmentHint)}</p>${customWarning(cfg)}
-      <div class="grid-wrap"><table class="grid-t" aria-describedby="cfg-da-hint"><thead><tr><th scope="col">${esc(R.archetypeName)}</th><th scope="col" id="cfg-da-col">${esc(R.preset)}</th><th scope="col"><span class="sr-only">${esc(R.addArchetype)}</span></th></tr></thead>
+      <div class="grid-wrap" tabindex="0" role="region" aria-label="${esc(R.tabs.defaultAssignment)}"><table class="grid-t" aria-describedby="cfg-da-hint"><thead><tr><th scope="col">${esc(R.archetypeName)}</th><th scope="col" id="cfg-da-col">${esc(R.preset)}</th><th scope="col"><span class="sr-only">${esc(R.addArchetype)}</span></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
       <div role="group" aria-labelledby="cfg-add-h" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         <h3 class="sub-h sr-only" id="cfg-add-h">${esc(R.addArchetype)}</h3>
@@ -319,7 +319,7 @@
         <td><button type="button" class="btn btn-text btn-sm" id="cfg-lib-${i}" data-act="cfg" data-arg="copyOpen:${i}" aria-expanded="${open}" ${open ? `aria-controls="cfg-lib-${i}-pick"` : ''} aria-describedby="cfg-lib-${i}-n">${esc(R.copyIntoPreset)}</button></td></tr>${pick}`;
     }).join('');
     return `<h3 class="sub-h" id="cfg-lib-h">${esc(R.referenceLibrary)}</h3><p class="hint" id="cfg-lib-hint">${esc(R.libraryHint)}</p>${notice(ui)}
-      <div class="grid-wrap"><table class="grid-t" aria-labelledby="cfg-lib-h" aria-describedby="cfg-lib-hint"><thead><tr><th scope="col">${esc(R.libraryStep)}</th><th scope="col" class="num">${esc(R.delta)}</th><th scope="col" class="num">${esc(R.gamma)}</th><th scope="col" class="num">${esc(R.rho)}</th><th scope="col" class="num">${esc(R.halfOfPeak)}</th><th scope="col"><span class="sr-only">${esc(R.copyIntoPreset)}</span></th></tr></thead>
+      <div class="grid-wrap" tabindex="0" role="region" aria-label="${esc(R.referenceLibrary)}"><table class="grid-t" aria-labelledby="cfg-lib-h" aria-describedby="cfg-lib-hint"><thead><tr><th scope="col">${esc(R.libraryStep)}</th><th scope="col" class="num">${esc(R.delta)}</th><th scope="col" class="num">${esc(R.gamma)}</th><th scope="col" class="num">${esc(R.rho)}</th><th scope="col" class="num">${esc(R.halfOfPeak)}</th><th scope="col"><span class="sr-only">${esc(R.copyIntoPreset)}</span></th></tr></thead>
       <tbody>${rows}</tbody></table></div>`;
   }
   function flagsPanel(cfg) {
@@ -327,7 +327,8 @@
     return FLAGS.map(k => checkField({ id: `cfg-flag-${k}`, label: R.flagLabels[k], checked: !!fl[k], cmd: `flag:${k}`, hint: R.flagHelp[k] })).join('') + customWarning(cfg);
   }
 
-  /* The dialog body. h = { icon, fmtTime } from the app. */
+  /* The dialog body. h = { icon, fmtTime } from the app. The tab panel is not a tab stop: every panel starts with focusable
+     controls (P3 review m1). Wide tables scroll in a focusable, labelled region, as the audit table does (m2). */
   function view(cfg, ui, h) {
     const R = L();
     const tab = TABS.includes(ui.tab) ? ui.tab : 'presets';
@@ -335,10 +336,10 @@
     const tablist = `<div class="tabs" role="tablist" aria-label="${esc(R.configuratorTitle)}">${TABS.map(k => `<button type="button" role="tab" class="tab${tab === k ? ' selected' : ''}" id="cfg-tab-${k}" aria-selected="${tab === k}" aria-controls="cfg-panel" tabindex="${tab === k ? 0 : -1}" data-act="cfg" data-arg="tab:${k}">${esc(R.tabs[k])}</button>`).join('')}</div>`;
     const body = tab === 'presets' ? presetsPanel(cfg, ui, h) : tab === 'defaultAssignment' ? defaultsPanel(cfg, ui, h) : tab === 'curveLibrary' ? libraryPanel(cfg, ui) : flagsPanel(cfg);
     return `<p class="hint">${esc(R.configuratorHint)}</p>${meta}${tablist}
-      <div role="tabpanel" id="cfg-panel" aria-labelledby="cfg-tab-${tab}" tabindex="0" class="tabpanel" style="display:flex;flex-direction:column;gap:12px;padding-top:12px">${body}</div>`;
+      <div role="tabpanel" id="cfg-panel" aria-labelledby="cfg-tab-${tab}" class="tabpanel" style="display:flex;flex-direction:column;gap:12px;padding-top:12px">${body}</div>`;
   }
 
-  const FSConfigurator = Object.freeze({ TABS, LABEL_MAX, DESCRIPTION_MAX, ARCHETYPE_MAX, blankUi, customInUse, view, command, pickerOptions, halfOfPeak,
+  const FSConfigurator = Object.freeze({ TABS, LABEL_MAX, DESCRIPTION_MAX, ARCHETYPE_MAX, DECIMAL, blankUi, customInUse, view, command, pickerOptions, halfOfPeak,
     setPresetField, resetPresets, setDefault, addArchetype, removeArchetype, copyLibrary, setFlag });
   if (typeof module !== 'undefined' && module.exports) module.exports = FSConfigurator; else root.FSConfigurator = FSConfigurator;
 })(this);
