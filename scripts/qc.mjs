@@ -230,9 +230,10 @@ async function q8() {
         const done = await page.evaluate(() => {
           const cur = document.querySelector('[data-act="nav"][data-arg="result"][aria-current]');
           const txt = document.getElementById('main') ? document.getElementById('main').innerText : '';
-          return { cur: !!cur, fte: /Recommended FTE/i.test(txt), stale: !!document.getElementById('calc-stale') };
+          const errUi = document.querySelectorAll('#main .err[role="alert"], #toasts .toast-error').length;
+          return { cur: !!cur, fte: /Recommended FTE/i.test(txt), stale: !!document.getElementById('calc-stale'), errUi };
         });
-        if (!done.cur || !done.fte || done.stale) throw new Error(`${tag}: no result rendered (${JSON.stringify(done)})`);
+        if (!done.cur || !done.fte || done.stale || done.errUi) throw new Error(`${tag}: no result rendered (${JSON.stringify(done)})`);
         walked++;
       } catch (e) { errs.push(e.message); }
       await page.close();
