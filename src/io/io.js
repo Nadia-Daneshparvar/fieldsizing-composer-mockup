@@ -1575,8 +1575,12 @@
     const L = rcLabels(c.F), H = L.exportHeadings || {}, K = L.exportColumns || {};
     S.skip();
     S.line([txt(H.effectiveCurves)], ST.SECTION);
-    S.line([K.archetype, K.uptake, K.source, K.presetId, K.delta, K.gamma, K.rho].map(txt), ST.HDR);
-    R.rows.forEach(x => S.line([x.name, x.uptake, x.sourceText, x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
+    // P7 (P5-F5): parameter headings match the sheet's Archetype parameters table; a Custom row's Source names the
+    // marketing-mix analysis instead of repeating the Custom uptake label (new-shape snapshots only; R is null otherwise).
+    const CS = L.curveSheetColumns || {};
+    const srcOf = x => (x.source === 'custom' && L.exportCustomSource ? txt(L.exportCustomSource) : x.sourceText);
+    S.line([K.archetype, K.uptake, K.source, K.presetId, CS.delta || K.delta, CS.gamma || K.gamma, CS.rho || K.rho].map(txt), ST.HDR);
+    R.rows.forEach(x => S.line([x.name, x.uptake, srcOf(x), x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
     if (R.anyCustom) S.line([txt(K.sourceNote), R.note]);
   }
   // New sheet (fs-io 1.1.0): the configuration snapshot a new-shape scenario was sized with (c.cfg is null for an old-shape one)

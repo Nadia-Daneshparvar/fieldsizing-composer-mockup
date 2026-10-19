@@ -271,3 +271,21 @@ test('N4: archetype names are capped at 60 characters', () => {
   assert.equal(JSON.stringify(cfg), before);
   assert.equal(run(cfg, ui, 'add', ` ${'a'.repeat(60)} `).changes.length, 1);
 });
+
+// P7 (P3-m3): a preset label may not start with the Custom word (the first word of the Custom label from FSFields),
+// case-insensitive and as a whole word; words that merely begin with the same letters stay allowed.
+test('P3-m3: a preset label may not start with the Custom word', () => {
+  const cfg = fresh(), ui = C.blankUi(), before = JSON.stringify(cfg);
+  const word = R.custom.trim().split(/\s+/)[0];
+  assert.equal(word, 'Custom');
+  for (const v of [word, `${word} 2`, ` ${word.toUpperCase()} uptake`, `${word.toLowerCase()}-fast`, `${word}: steep`]) {
+    assert.equal(run(cfg, ui, 'preset:0:label', v).error, R.presetLabelStartsCustom(word), v);
+  }
+  assert.equal(R.presetLabelStartsCustom(word), `Labels starting with "${word}" are kept for custom curves. Choose another label.`);
+  assert.equal(run(cfg, ui, 'preset:0:label', R.custom).error, R.presetLabelIsCustom, 'the full Custom label keeps its own message');
+  assert.equal(JSON.stringify(cfg), before, 'refused labels change nothing');
+  for (const ok of ['Customer uptake', 'Customised slow', 'Slow custom uptake']) {
+    assert.equal(run(cfg, ui, 'preset:0:label', ok).changes.length, 1, ok);
+    assert.equal(cfg.presets[0].label, ok);
+  }
+});

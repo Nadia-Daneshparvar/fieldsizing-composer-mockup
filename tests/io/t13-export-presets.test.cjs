@@ -9,7 +9,7 @@ const H = require('./export-helpers.cjs');
 const { F, E, FSIO, clone } = H;
 const C = F.RESPONSE_CURVE_CONFIG;
 const L = F.RESPONSE_CURVE_LABELS;
-const K = L.exportColumns, HD = L.exportHeadings;
+const K = L.exportColumns, HD = L.exportHeadings, CS = L.curveSheetColumns;
 const CONFIG_SHEET = L.exportSheets.configuration;
 
 // Default assignment of the uptake presets sample, config snapshot on the scenario (I-4 draft.responseCurveConfig).
@@ -82,7 +82,10 @@ test('presets export: Response Curves effective values equal curveParams, with p
   const wb = await H.parsed(FSIO.exportWorkbook(args));
   const rows = H.sectionRows(wb.by['Response Curves'], HD.effectiveCurves);
   assert.ok(rows, 'effective curves section present');
-  assert.deepEqual(rows[0], [K.archetype, K.uptake, K.source, K.presetId, K.delta, K.gamma, K.rho]);
+  assert.deepEqual(rows[0], [K.archetype, K.uptake, K.source, K.presetId, CS.delta, CS.gamma, CS.rho]);
+  // P7 (P5-F5): the parameter headings are the sheet's existing Archetype parameters headings (fs-io 1.0.0 wording).
+  const paramHdr = wb.by['Response Curves'].find(r => r && r[0] === 'Curve archetype');
+  assert.deepEqual(paramHdr.slice(1, 4), [CS.delta, CS.gamma, CS.rho]);
   const body = rows.slice(1);
   assert.deepEqual(body.map(r => r[0]), Object.keys(rc.curveParams));
   body.forEach(r => {
@@ -147,9 +150,12 @@ test('mixed export: custom row with source note, non-reference archetypes and Al
   curveRows.forEach((r, i) => {
     const id = ids[i], p = rc.curveParams[id], pv = rc.provenance[id];
     assert.deepEqual(r.slice(4, 7), [p.delta, p.gamma, p.rho], id);
-    assert.equal(r[2], L.sourceLabel[pv.source]);
+    // P7 (P5-F5): a Custom row's Source does not repeat its Uptake label
+    assert.equal(r[2], pv.source === 'custom' ? L.exportCustomSource : L.sourceLabel[pv.source]);
+    assert.notEqual(r[2], r[1], `${id}: Source repeats Uptake`);
     assert.equal(r[3] == null ? null : r[3], pv.presetId);
   });
+  assert.equal(curveRows.find(r => r[0] === 'Trialists')[1], L.custom);
   assert.deepEqual(eff.find(r => r[0] === K.sourceNote), [K.sourceNote, rc.customSourceNote]);
   assert.deepEqual(curveRows.find(r => r[0] === 'Prospects').slice(1, 4), ['Slow uptake (synthetic edit)', L.sourceLabel.preset, 'slow']);
   assert.equal(curveRows.find(r => r[0] === 'Prospects')[6], 12);

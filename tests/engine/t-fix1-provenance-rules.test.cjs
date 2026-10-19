@@ -38,9 +38,11 @@ test('F6 summary loop order: reference archetypes first (reference order), then 
   assert.deepEqual(Object.keys(res.curves), ['Loyalists', 'Splitters', 'Dabblers', 'Conservatives', 'Archetype Z', 'Archetype M', 'Archetype B']);
 });
 
-// A2 (F1): a curveParams array is treated as {} exactly as 1.10.0 did: same outputs and same input hash rule.
+// A2 (F1): a curveParams array is treated as {} (I-3 A2): no errors, the same outputs as a plain input and the same input
+// hash rule. This is the 1.11.0 rule, not a replay of 1.10.0: an empty array was {} in 1.10.0 as well, but 1.10.0 validate
+// (and so calculate) read a non-empty array's index keys ('0', ...) as archetype names and failed with archetype-unknown.
 for (const arr of [[], [{ gamma: 3, rho: 9 }]]) {
-  test(`A2 curveParams ${JSON.stringify(arr)} is treated as {}`, () => {
+  test(`A2 curveParams ${JSON.stringify(arr)} is treated as {} (1.11.0 rule; a non-empty array failed 1.10.0 validate)`, () => {
     const i = sampleInputs('single', 'response', mods);
     i.methodAssumptions.curveParams = arr;
     const res = FSEngine.calculate(i);
@@ -49,7 +51,7 @@ for (const arr of [[], [{ gamma: 3, rho: 9 }]]) {
     assert.deepEqual(comparable(res), comparable(plain));
     assert.deepEqual(res.trace.map(s => s.formula), plain.trace.map(s => s.formula));
     assert.deepEqual({ ...FSEngine.archetypesFor(i.methodAssumptions).Loyalists }, { ...FSEngine.ARCHETYPES.Loyalists });
-    // the hash is of the exact input object (which now carries the array), computed by the unchanged 1.10.0 hash function
+    // the hash is of the exact input object (which now carries the array), computed by the hash function unchanged since 1.10.0
     assert.equal(res.inputsHash, FSEngine._internal.fnv1a(FSEngine._internal.stableStringify(i)));
   });
 }
@@ -115,4 +117,37 @@ test('F5 value-only trace label comes from RESPONSE_CURVE_LABELS.all (fallback "
   const want = (L && typeof L.all === 'string' && L.all) || 'All HCPs';
   assert.ok(f.startsWith(`${want}: preset Baseline`), f);
   assert.ok(!/value-only\)/.test(f));
+});
+
+// P7 (P1-m3): a curve source (provenance entry) with no matching curveParams entry is refused, never computed: on a
+// reference name it would put a preset or Custom label on the reference defaults. resolveCurves never produces it.
+test('P1-m3 a provenance entry with no curveParams entry is a validate() error (reference and other names, any source)', () => {
+  const L = mods.FSFields.RESPONSE_CURVE_LABELS;
+  const cases = [
+    [{ Splitters: { delta: 5, gamma: 1.1, rho: 2.5 } }, { Loyalists: preset('slow', 'Slow uptake'), Splitters: preset('moderate', 'Moderate uptake') }, ['Loyalists']],
+    [undefined, { Loyalists: preset('slow', 'Slow uptake') }, ['Loyalists']],
+    [[], { 'Archetype Q': { source: 'custom', presetId: null, label: null } }, ['Archetype Q']],
+  ];
+  for (const [cp, pv, want] of cases) {
+    const i = sampleInputs('single', 'response', mods);
+    if (cp === undefined) delete i.methodAssumptions.curveParams; else i.methodAssumptions.curveParams = cp;
+    i.methodAssumptions.curveProvenance = pv;
+    i.methodAssumptions.customSourceNote = 'Synthetic note';
+    const e = FSEngine.validate(i).errors.filter(x => x.path.startsWith('methodAssumptions.curveProvenance.'));
+    assert.deepEqual(e.map(x => `${x.code} ${x.path}`), want.map(n => `curve-params-invalid methodAssumptions.curveProvenance.${n}`), JSON.stringify(pv));
+    assert.equal(e[0].message, L.provenanceWithoutCurve(want[0]));
+    assert.ok(FSEngine.calculate(i).errors.length > 0, 'calculate refuses it too');
+  }
+});
+
+test('P1-m3 inputs from resolveCurves and old-shape inputs raise no provenance error', () => {
+  const C = mods.FSFields.RESPONSE_CURVE_CONFIG;
+  const i = sampleInputs('single', 'response', mods);
+  const rc = FSEngine.resolveCurves({ Loyalists: 'slow', Splitters: 'custom', Dabblers: 'nope' }, C.presets, { Splitters: { gamma: 1.2, rho: 3 } });
+  assert.deepEqual(rc.issues.map(x => x.code), ['unknown-preset']);
+  i.methodAssumptions.curveParams = rc.curveParams; i.methodAssumptions.curveProvenance = rc.provenance; i.methodAssumptions.customSourceNote = 'Synthetic note';
+  assert.deepEqual(codes(FSEngine.validate(i)), []);
+  const old = sampleInputs('single', 'response', mods);
+  old.methodAssumptions.curveParams = { Loyalists: { gamma: 1.4 } };
+  assert.deepEqual(codes(FSEngine.validate(old)), []);
 });

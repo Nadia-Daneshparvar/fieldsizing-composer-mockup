@@ -282,7 +282,8 @@
     // Step 1: third synthetic sample
     samplePresetsButton: 'Load uptake presets synthetic sample',
     samplePresetsData: 'Synthetic uptake presets sample data',
-    samplePresetsAudit: 'Synthetic uptake presets sample project loaded (3 archetypes with default uptake)',
+    // P7 (P2-m2): the archetype count comes from the sample itself, not a hard-coded 3
+    samplePresetsAudit: n => `Synthetic uptake presets sample project loaded (${n} ${n === 1 ? 'archetype' : 'archetypes'} with default uptake)`,
     samplePresetsToast: 'Synthetic uptake presets sample loaded. Run the inputs check to continue.',
     // P4 fix 1 (additive): Segmentation type audit wording when value-only data is allowed (one "All HCPs" uptake)
     segTypeValueOnlyAllowed: 'Value only (one "All HCPs" uptake)',
@@ -293,7 +294,14 @@
     notApplicable: 'Not applicable',
     referenceCurve: 'Reference curve (earlier draft without an uptake choice)',
     editedCurve: 'Edited curve (earlier draft without an uptake choice)',
-    carriedOverNote: 'Curve values carried over from an earlier draft'
+    carriedOverNote: 'Curve values carried over from an earlier draft',
+    // P7 cleanup (additive): engine validate() wording for a curve source with no curve values (P1-m3); configurator refusal
+    // of labels starting with the Custom word (P3-m3); Response Curves export wording (P5-F5): the effective-curves table
+    // uses the sheet's existing parameter headings, and a Custom row's Source cell does not repeat its Uptake cell.
+    provenanceWithoutCurve: id => `${id}: the curve source has no curve values.`,
+    presetLabelStartsCustom: word => `Labels starting with "${word}" are kept for custom curves. Choose another label.`,
+    curveSheetColumns: { delta: 'δ (delta)', gamma: 'γ (gamma)', rho: 'ρ (rho)' },
+    exportCustomSource: 'Marketing-mix analysis (see source note)'
   });
 
   const MAPPING_FIELDS = [

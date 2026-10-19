@@ -9,10 +9,13 @@ const { load, SRC } = require('../helpers/modules.cjs');
 const { FSFields: F } = load();
 const APP = fs.readFileSync(path.join(SRC, 'ui', 'app.js'), 'utf8');
 
-// Structural string literals allowed in the new code: ids, action names, kinds, icons, audit/toast categories, method ids,
-// and the existing shared aiGuard reason every sample loader already passes.
+// Structural string literals allowed in the new code: ids, action names, kinds, icons, audit/toast categories and method ids.
+// 'new data loaded' is not structural: it is the existing shared aiGuard reason string (shown as-is in AI rejection audit
+// rows, and the key of the existing reason-wording lookups) that every data loader already passed before P2; the presets
+// branch reuses it rather than adding new wording.
 const STRUCTURAL = new Set(['', 'load-sample-presets', 'loadSamplePresets', 'presets', 'multi', 'text', 'file', 'affordable', 'behaviour', 'project',
-  'success', 'new data loaded']);
+  'success']);
+const EXISTING_SHARED = new Set(['new data loaded']);
 
 // P4 (D-RUN-10): the P2 bridge loadPresetSampleProject() is folded into loadSampleProject(kind); its presets branch is checked.
 function newCode() {
@@ -33,7 +36,7 @@ const literals = src => [...src.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/'((?:
 
 test('new app.js lines use only structural string literals (labels come from FSFields)', () => {
   const lits = literals(newCode());
-  const bad = lits.filter(s => !STRUCTURAL.has(s));
+  const bad = lits.filter(s => !STRUCTURAL.has(s) && !EXISTING_SHARED.has(s));
   assert.deepEqual(bad, [], `user-facing literals in new app.js code: ${JSON.stringify(bad)}`);
   assert.ok(!/`[^`]*[A-Za-z]{3,}[^`]*`/.test(newCode().replace(/\/\*[\s\S]*?\*\//g, '')), 'no template-literal prose');
 });
@@ -42,8 +45,11 @@ test('the third load button, its action and the presets loader read their text f
   const code = newCode();
   ['samplePresetsButton', 'samplePresetsData', 'samplePresetsAudit', 'samplePresetsToast'].forEach(k => {
     assert.ok(code.includes(`RCL.${k}`), `uses RCL.${k}`);
+    if (k === 'samplePresetsAudit') return;   // P7 (P2-m2): a function of the archetype count, checked below
     assert.ok(typeof F.RESPONSE_CURVE_LABELS[k] === 'string' && F.RESPONSE_CURVE_LABELS[k].length > 0, k);
   });
+  // P7 (P2-m2): the audit text counts the sample's archetypes instead of hard-coding 3.
+  assert.ok(code.includes('RCL.samplePresetsAudit(src.archetypes.length)'), 'audit text takes the sample archetype count');
   assert.ok(/const RCL = \(F && F\.RESPONSE_CURVE_LABELS\)/.test(code));
   // The button sits next to the two existing load buttons in both Step 1 places.
   assert.equal((APP.match(/presetSampleBtn\(\)/g) || []).length, 2);

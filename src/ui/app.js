@@ -2396,7 +2396,7 @@
     if (presets) {
       setManualData(mergedSampleRows('presets'), RCL.samplePresetsData);
       seedResponseCurve('presets');
-      audit('project', RCL.samplePresetsAudit);
+      audit('project', RCL.samplePresetsAudit(src.archetypes.length));
       toast(RCL.samplePresetsToast, 'success');
       return;
     }

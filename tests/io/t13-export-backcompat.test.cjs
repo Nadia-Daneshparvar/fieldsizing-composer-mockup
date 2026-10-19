@@ -6,12 +6,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
 const H = require('./export-helpers.cjs');
 const { CASES } = require('../helpers/sample-inputs.cjs');
 const { F, FSIO, clone } = H;
 const L = F.RESPONSE_CURVE_LABELS;
 const CONFIG_SHEET = L.exportSheets.configuration;
 const IO100 = require(path.join(__dirname, 'fixtures', 'fs-io-1.0.0.js'));
+
+// P7 (P5-N1): the fixture is pinned by content, so an accidental edit to it cannot make the comparison vacuous.
+const IO100_SHA256 = '9b77dc45658f7d633bf6fc0093af0e80f9cfeba4826df6cb80aad9f0985af84e';
+test('the fs-io 1.0.0 fixture is byte-identical to the pinned copy (sha256)', () => {
+  const bytes = fs.readFileSync(path.join(__dirname, 'fixtures', 'fs-io-1.0.0.js'));
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), IO100_SHA256);
+});
 
 test('the comparison module is fs-io 1.0.0 and the current one is 1.1.0', () => {
   assert.equal(IO100.version, 'fs-io 1.0.0');

@@ -6,7 +6,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load } = require('../helpers/modules.cjs');
 const B = require('./browser.cjs');
-const { FSFields: F } = load();
+const { FSFields: F, FSSample: SAMPLE } = load();
 const R = F.RESPONSE_CURVE_LABELS;
 const ROLE = F.ROLE_LABELS;
 
@@ -159,7 +159,7 @@ test('T8: exactly one audit row per saved edit (old → new), version +1 per sav
     await page.evaluate(a => { const b = document.createElement('button'); b.type = 'button'; b.id = `forced-${a}`; b.dataset.act = a; document.getElementById('main').appendChild(b); }, act);
     await B.click(page, `#forced-${act}`);
   }
-  assert.ok((await auditRows(page)).some(r => r[5] === R.samplePresetsAudit), 'the presets sample really loaded');
+  assert.ok((await auditRows(page)).some(r => r[5] === R.samplePresetsAudit(SAMPLE.presetSample.archetypes.length)), 'the presets sample really loaded');
   await B.setRole(page, 'admin');
   await B.click(page, '#show-req', { confirm: false });
   await page.click('#open-config'); await page.waitForTimeout(150);

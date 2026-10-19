@@ -69,6 +69,9 @@
       if (!v) return { error: R.presetLabelRequired };
       if (v.length > LABEL_MAX) return { error: R.presetLabelTooLong(LABEL_MAX) };
       if (v.toLowerCase() === String(R.custom).trim().toLowerCase()) return { error: R.presetLabelIsCustom };
+      // P7 (P3-m3): nor start with the Custom word (the first word of the Custom label), case-insensitive, as a whole word
+      const cw = String(R.custom).trim().split(/\s+/)[0] || '';
+      if (cw && v.toLowerCase().startsWith(cw.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(v.slice(cw.length))) return { error: R.presetLabelStartsCustom(cw) };
       if ((cfg.presets || []).some(o => o !== p && String(o.label).trim().toLowerCase() === v.toLowerCase())) return { error: R.presetLabelDuplicate };
       return { value: v };
     }

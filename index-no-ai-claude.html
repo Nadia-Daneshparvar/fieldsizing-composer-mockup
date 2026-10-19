@@ -904,7 +904,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     // Step 1: third synthetic sample
     samplePresetsButton: 'Load uptake presets synthetic sample',
     samplePresetsData: 'Synthetic uptake presets sample data',
-    samplePresetsAudit: 'Synthetic uptake presets sample project loaded (3 archetypes with default uptake)',
+    // P7 (P2-m2): the archetype count comes from the sample itself, not a hard-coded 3
+    samplePresetsAudit: n => `Synthetic uptake presets sample project loaded (${n} ${n === 1 ? 'archetype' : 'archetypes'} with default uptake)`,
     samplePresetsToast: 'Synthetic uptake presets sample loaded. Run the inputs check to continue.',
     // P4 fix 1 (additive): Segmentation type audit wording when value-only data is allowed (one "All HCPs" uptake)
     segTypeValueOnlyAllowed: 'Value only (one "All HCPs" uptake)',
@@ -915,7 +916,14 @@ abbr[title] { text-decoration: none; cursor: help; }
     notApplicable: 'Not applicable',
     referenceCurve: 'Reference curve (earlier draft without an uptake choice)',
     editedCurve: 'Edited curve (earlier draft without an uptake choice)',
-    carriedOverNote: 'Curve values carried over from an earlier draft'
+    carriedOverNote: 'Curve values carried over from an earlier draft',
+    // P7 cleanup (additive): engine validate() wording for a curve source with no curve values (P1-m3); configurator refusal
+    // of labels starting with the Custom word (P3-m3); Response Curves export wording (P5-F5): the effective-curves table
+    // uses the sheet's existing parameter headings, and a Custom row's Source cell does not repeat its Uptake cell.
+    provenanceWithoutCurve: id => `${id}: the curve source has no curve values.`,
+    presetLabelStartsCustom: word => `Labels starting with "${word}" are kept for custom curves. Choose another label.`,
+    curveSheetColumns: { delta: 'δ (delta)', gamma: 'γ (gamma)', rho: 'ρ (rho)' },
+    exportCustomSource: 'Marketing-mix analysis (see source note)'
   });
 
   const MAPPING_FIELDS = [
@@ -993,7 +1001,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   // I-3 A1: an entry WITH provenance (preset or custom), whatever its name, is used exactly as given (delta defaults to 5 only
   // when absent) and validate() requires delta/gamma/rho > 0 with no upper bound. Only a provenance-less entry on a reference
   // name keeps the 1.10.0 rules: per-parameter fallback to the reference default (delta: absent or non-positive -> 5).
-  // Every other key brings its own gamma and rho. I-3 A2: a curveParams array is treated as {} (as 1.10.0 did).
+  // Every other key brings its own gamma and rho. I-3 A2: a curveParams array is treated as {} (1.10.0 failed a non-empty one).
   // 'ALL' is the reserved id of the value-only "All HCPs" curve (D3). Key order: reference archetypes, then curveParams order.
   const DEFAULT_DELTA = 5;
   const ALL_ID = 'ALL';
@@ -1093,6 +1101,8 @@ abbr[title] { text-decoration: none; cursor: help; }
   const optLabel = (group, key) => (FL && FL.OPTION_LABELS && FL.OPTION_LABELS[group] && FL.OPTION_LABELS[group][key]) || String(key);
   const optChoices = group => (FL && FL.OPTION_LABELS && FL.OPTION_LABELS[group] ? Object.values(FL.OPTION_LABELS[group]).map(l => `"${l}"`).join(' or ') : '');
   const bindLabel = key => (FL && FL.BINDING_LABELS && FL.BINDING_LABELS[key]) || String(key);
+  const provenanceWithoutCurve = n => (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.provenanceWithoutCurve === 'function'
+    ? FL.RESPONSE_CURVE_LABELS.provenanceWithoutCurve(n) : `${n}: the curve source has no curve values.`);
   const EXTRA_LABELS = { capacity: 'Effective annual capacity', capacityInput: 'Capacity input', callsPerDay: 'Calls per day', workingDays: 'Working days',
     repCost: 'Annual rep cost', costMode: 'Cost mode', costPerCallMethod: 'Cost per call method', fteRounding: 'FTE rounding', inflationPct: 'Cost inflation %',
     discountRatePct: 'Discount rate %', layers: 'Management layers', windowYears: 'Sizing window (years)', annualValue: 'Annual impactable value',
@@ -1585,7 +1595,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (!RULES.includes(o.stoppingRule)) E.add('stopping-rule-invalid', 'methodAssumptions.stoppingRule', `Stopping rule must be ${optChoices('stoppingRule')}.`);
       if (!isInt(o.scenarioMaxCalls) || o.scenarioMaxCalls <= 0) E.add('scenario-max-invalid', 'methodAssumptions.scenarioMaxCalls', 'Normalization point must be a whole number of calls above zero.');
       const prov = provenanceOf(ma);
-      if (ma.curveParams !== undefined && ma.curveParams !== null && !Array.isArray(ma.curveParams)) {   // I-3 A2: an array is {} (1.10.0)
+      if (ma.curveParams !== undefined && ma.curveParams !== null && !Array.isArray(ma.curveParams)) {   // I-3 A2: an array is {} (1.11.0 rule)
         if (typeof ma.curveParams !== 'object') E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
         else Object.keys(ma.curveParams).forEach(n => {
           const u = ma.curveParams[n] && typeof ma.curveParams[n] === 'object' ? ma.curveParams[n] : {};
@@ -1613,6 +1623,10 @@ abbr[title] { text-decoration: none; cursor: help; }
           const pv = ma.curveProvenance[n];
           if (!pv || typeof pv !== 'object' || (pv.source !== 'preset' && pv.source !== 'custom'))
             E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, `${n}: the curve source must be a preset or a custom curve.`);
+          // P7 (P1-m3): a source with no curveParams entry would label reference defaults (or nothing) with a preset or
+          // Custom; resolveCurves never produces it, so it is refused rather than computed.
+          else if (!Object.prototype.hasOwnProperty.call(curveParamsOf(ma), n))
+            E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, provenanceWithoutCurve(n));
         });
       }
       const note = ma.customSourceNote;
@@ -3782,8 +3796,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     const L = rcLabels(c.F), H = L.exportHeadings || {}, K = L.exportColumns || {};
     S.skip();
     S.line([txt(H.effectiveCurves)], ST.SECTION);
-    S.line([K.archetype, K.uptake, K.source, K.presetId, K.delta, K.gamma, K.rho].map(txt), ST.HDR);
-    R.rows.forEach(x => S.line([x.name, x.uptake, x.sourceText, x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
+    // P7 (P5-F5): parameter headings match the sheet's Archetype parameters table; a Custom row's Source names the
+    // marketing-mix analysis instead of repeating the Custom uptake label (new-shape snapshots only; R is null otherwise).
+    const CS = L.curveSheetColumns || {};
+    const srcOf = x => (x.source === 'custom' && L.exportCustomSource ? txt(L.exportCustomSource) : x.sourceText);
+    S.line([K.archetype, K.uptake, K.source, K.presetId, CS.delta || K.delta, CS.gamma || K.gamma, CS.rho || K.rho].map(txt), ST.HDR);
+    R.rows.forEach(x => S.line([x.name, x.uptake, srcOf(x), x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
     if (R.anyCustom) S.line([txt(K.sourceNote), R.note]);
   }
   // New sheet (fs-io 1.1.0): the configuration snapshot a new-shape scenario was sized with (c.cfg is null for an old-shape one)
@@ -5677,6 +5695,9 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (!v) return { error: R.presetLabelRequired };
       if (v.length > LABEL_MAX) return { error: R.presetLabelTooLong(LABEL_MAX) };
       if (v.toLowerCase() === String(R.custom).trim().toLowerCase()) return { error: R.presetLabelIsCustom };
+      // P7 (P3-m3): nor start with the Custom word (the first word of the Custom label), case-insensitive, as a whole word
+      const cw = String(R.custom).trim().split(/\s+/)[0] || '';
+      if (cw && v.toLowerCase().startsWith(cw.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(v.slice(cw.length))) return { error: R.presetLabelStartsCustom(cw) };
       if ((cfg.presets || []).some(o => o !== p && String(o.label).trim().toLowerCase() === v.toLowerCase())) return { error: R.presetLabelDuplicate };
       return { value: v };
     }
@@ -8351,7 +8372,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (presets) {
       setManualData(mergedSampleRows('presets'), RCL.samplePresetsData);
       seedResponseCurve('presets');
-      audit('project', RCL.samplePresetsAudit);
+      audit('project', RCL.samplePresetsAudit(src.archetypes.length));
       toast(RCL.samplePresetsToast, 'success');
       return;
     }

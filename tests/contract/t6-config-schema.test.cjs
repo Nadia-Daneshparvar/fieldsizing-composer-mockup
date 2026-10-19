@@ -102,12 +102,15 @@ test('RESPONSE_CURVE_LABELS: engine keys and the I-1 label list', () => {
   assert.equal(L.noConfiguration, 'No configuration recorded');
   assert.equal(L.exportSheets.configuration, 'Configuration');
   assert.deepEqual(L.tabs, { presets: 'Presets', defaultAssignment: 'Default assignment', curveLibrary: 'Curve library', flags: 'Flags' });
-  ['sourceNote', 'sourceNoteHelp', 'sourceNoteRequired', 'configuratorTitle', 'pickerVisible', 'configVersion', 'samplePresetsButton', 'samplePresetsData', 'samplePresetsAudit', 'samplePresetsToast']
+  ['sourceNote', 'sourceNoteHelp', 'sourceNoteRequired', 'configuratorTitle', 'pickerVisible', 'configVersion', 'samplePresetsButton', 'samplePresetsData', 'samplePresetsToast']
     .forEach(k => assert.ok(typeof L[k] === 'string' && L[k].trim(), k));
   Object.keys(C.flags).forEach(k => { assert.ok(L.flagLabels[k], `flag label ${k}`); assert.ok(L.flagHelp[k], `flag help ${k}`); });
   ['custom-curve-invalid', 'custom-source-missing', 'unknown-archetype', 'unknown-preset'].forEach(k => assert.equal(typeof L.validation[k], 'function', k));
   assert.equal(L.audit.configEdit('Slow uptake rho', 11, 12), 'Slow uptake rho: 11 → 12');
   assert.equal(typeof L.configVersionText(3), 'string');
+  // P7 R-QC m1: the audit wording uses the archetype count it is given
+  assert.ok(L.samplePresetsAudit(1).includes('(1 archetype '), 'singular count');
+  assert.ok(L.samplePresetsAudit(2).includes('(2 archetypes '), 'plural count');
   // Plain language: no reference-workbook naming in any label.
   const all = JSON.stringify(L, (k, v) => (typeof v === 'function' ? v.toString() : v));
   assert.ok(!/workbook|S2\b|spreadsheet/i.test(all));

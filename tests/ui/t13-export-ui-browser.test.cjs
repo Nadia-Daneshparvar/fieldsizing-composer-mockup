@@ -48,7 +48,7 @@ test('T13 (UI): the exported workbook matches the page: uptake per archetype, δ
   // Response Curves: effective values with provenance, the same numbers.
   const all = H.sectionRows(wb.by['Response Curves'], HD.effectiveCurves).slice(1), eff = all.filter(r => r[0] !== K.sourceNote);
   assert.deepEqual(eff.map(r => [r[0], String(r[4]), String(r[5]), String(r[6])]), ui.map(r => [r[0], r[2], r[3], r[4]]));
-  assert.deepEqual(eff.map(r => r[2]), [R.sourceLabel.preset, R.sourceLabel.preset, R.sourceLabel.custom]);
+  assert.deepEqual(eff.map(r => r[2]), [R.sourceLabel.preset, R.sourceLabel.preset, R.exportCustomSource]);   // P7 (P5-F5)
   assert.deepEqual(all.find(r => r[0] === K.sourceNote), [K.sourceNote, 'Synthetic marketing-mix study for the export test']);
   // Recommended FTE: the UI's.
   const rec = wb.by['Scenario Summary'].find(r => r && r[0] === F.RESULT_LABELS.recommendedFte());

@@ -24,7 +24,7 @@
   // I-3 A1: an entry WITH provenance (preset or custom), whatever its name, is used exactly as given (delta defaults to 5 only
   // when absent) and validate() requires delta/gamma/rho > 0 with no upper bound. Only a provenance-less entry on a reference
   // name keeps the 1.10.0 rules: per-parameter fallback to the reference default (delta: absent or non-positive -> 5).
-  // Every other key brings its own gamma and rho. I-3 A2: a curveParams array is treated as {} (as 1.10.0 did).
+  // Every other key brings its own gamma and rho. I-3 A2: a curveParams array is treated as {} (1.10.0 failed a non-empty one).
   // 'ALL' is the reserved id of the value-only "All HCPs" curve (D3). Key order: reference archetypes, then curveParams order.
   const DEFAULT_DELTA = 5;
   const ALL_ID = 'ALL';
@@ -124,6 +124,8 @@
   const optLabel = (group, key) => (FL && FL.OPTION_LABELS && FL.OPTION_LABELS[group] && FL.OPTION_LABELS[group][key]) || String(key);
   const optChoices = group => (FL && FL.OPTION_LABELS && FL.OPTION_LABELS[group] ? Object.values(FL.OPTION_LABELS[group]).map(l => `"${l}"`).join(' or ') : '');
   const bindLabel = key => (FL && FL.BINDING_LABELS && FL.BINDING_LABELS[key]) || String(key);
+  const provenanceWithoutCurve = n => (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.provenanceWithoutCurve === 'function'
+    ? FL.RESPONSE_CURVE_LABELS.provenanceWithoutCurve(n) : `${n}: the curve source has no curve values.`);
   const EXTRA_LABELS = { capacity: 'Effective annual capacity', capacityInput: 'Capacity input', callsPerDay: 'Calls per day', workingDays: 'Working days',
     repCost: 'Annual rep cost', costMode: 'Cost mode', costPerCallMethod: 'Cost per call method', fteRounding: 'FTE rounding', inflationPct: 'Cost inflation %',
     discountRatePct: 'Discount rate %', layers: 'Management layers', windowYears: 'Sizing window (years)', annualValue: 'Annual impactable value',
@@ -616,7 +618,7 @@
       if (!RULES.includes(o.stoppingRule)) E.add('stopping-rule-invalid', 'methodAssumptions.stoppingRule', `Stopping rule must be ${optChoices('stoppingRule')}.`);
       if (!isInt(o.scenarioMaxCalls) || o.scenarioMaxCalls <= 0) E.add('scenario-max-invalid', 'methodAssumptions.scenarioMaxCalls', 'Normalization point must be a whole number of calls above zero.');
       const prov = provenanceOf(ma);
-      if (ma.curveParams !== undefined && ma.curveParams !== null && !Array.isArray(ma.curveParams)) {   // I-3 A2: an array is {} (1.10.0)
+      if (ma.curveParams !== undefined && ma.curveParams !== null && !Array.isArray(ma.curveParams)) {   // I-3 A2: an array is {} (1.11.0 rule)
         if (typeof ma.curveParams !== 'object') E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
         else Object.keys(ma.curveParams).forEach(n => {
           const u = ma.curveParams[n] && typeof ma.curveParams[n] === 'object' ? ma.curveParams[n] : {};
@@ -644,6 +646,10 @@
           const pv = ma.curveProvenance[n];
           if (!pv || typeof pv !== 'object' || (pv.source !== 'preset' && pv.source !== 'custom'))
             E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, `${n}: the curve source must be a preset or a custom curve.`);
+          // P7 (P1-m3): a source with no curveParams entry would label reference defaults (or nothing) with a preset or
+          // Custom; resolveCurves never produces it, so it is refused rather than computed.
+          else if (!Object.prototype.hasOwnProperty.call(curveParamsOf(ma), n))
+            E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, provenanceWithoutCurve(n));
         });
       }
       const note = ma.customSourceNote;
