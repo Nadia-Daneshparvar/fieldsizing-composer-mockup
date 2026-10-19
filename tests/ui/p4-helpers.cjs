@@ -38,6 +38,9 @@ function oldDraftProbe() {
       const ma = o.inputs.methodAssumptions;
       delete ma.curveProvenance; delete ma.customSourceNote; delete ma.curveParams;
       if (spec.curveParams) ma.curveParams = JSON.parse(JSON.stringify(spec.curveParams));
+      // provenance / note: an earlier draft that already carried them (saved before the uptake was stored).
+      if (spec.provenance) ma.curveProvenance = JSON.parse(JSON.stringify(spec.provenance));
+      if (typeof spec.note === 'string') ma.customSourceNote = spec.note;
       // resultCurveParams: store a result calculated with other curves (a draft whose inputs do not reproduce its result).
       const rin = spec.resultCurveParams ? JSON.parse(JSON.stringify(o.inputs)) : o.inputs;
       if (spec.resultCurveParams) rin.methodAssumptions.curveParams = spec.resultCurveParams;
@@ -48,7 +51,23 @@ function oldDraftProbe() {
   };
 }
 
-async function openProbed(browser, { width = 1400, height = 1000 } = {}) {
+/* Sample variant (fix 3): with presetMixes = { <segment index>: mix }, FSSample.presetSample.segments() returns those archetype
+   mixes for the given segments (synthetic; for data-defect tests). Installed before the modules load. */
+function sampleProbe(presetMixes) {
+  if (!presetMixes) return;
+  let wrapped = null;
+  Object.defineProperty(window, 'FSSample', {
+    configurable: true,
+    get() { return wrapped; },
+    set(real) {
+      const ps = real.presetSample, seg = ps.segments;
+      const segments = m => seg(m).map((x, i) => (presetMixes[i] && x.archetypeMix ? Object.assign({}, x, { archetypeMix: Object.assign({}, presetMixes[i]) }) : x));
+      wrapped = Object.assign({}, real, { presetSample: Object.assign({}, ps, { segments }) });
+    }
+  });
+}
+
+async function openProbed(browser, { width = 1400, height = 1000, presetMixes = null } = {}) {
   const page = await browser.newPage();
   await page.setViewportSize({ width, height });
   const errors = [];
@@ -56,6 +75,7 @@ async function openProbed(browser, { width = 1400, height = 1000 } = {}) {
   page.on('pageerror', e => errors.push(e.message));
   await page.addInitScript(engineProbe);
   await page.addInitScript(oldDraftProbe);
+  await page.addInitScript(sampleProbe, presetMixes);
   await page.goto(require('node:url').pathToFileURL(require('node:path').join(__dirname, '..', '..', 'index-no-ai-claude.html')).href);
   await page.waitForTimeout(200);
   return { page, errors };

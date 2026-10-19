@@ -6278,7 +6278,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   function mixTotalFromUptake(issue) {
     const m = issue.code === 'archetype-mix-total' && String(issue.path || '').match(/^segments\[(\d+)\]\.archetypeMix$/);
     const mix = m && state.segments[+m[1]] && state.segments[+m[1]].archetypeMix;
-    if (!mix) return false;
+    if (!mix || !Object.keys(mix).every(k => isNum(mix[k]) && mix[k] >= 0)) return false;   // N2: any other mix defect stays a Step 1 error
     const tot = Object.keys(mix).reduce((t, k) => t + (isNum(mix[k]) ? mix[k] : 0), 0);
     const cp = resolvedCurves().curveParams;
     return Math.abs(tot - 100) <= 1e-6 && Object.keys(mix).some(k => !E.ARCHETYPES[k] && !ownKey(cp, k));
@@ -8444,10 +8444,15 @@ abbr[title] { text-decoration: none; cursor: help; }
     const at = nowIso();
     state.checkpoints.inputs = { sig: inputsSig(), at }; state.checkpoints.assumptions = { sig: assumptionsSig(), at };
     state.resultSig = assumptionsSig();
-    /* F1 (fix 2): an earlier draft's result stays current only if the rebuilt inputs reproduce it exactly; else it is stale. */
+    /* F1 (fix 2) / N1, N4 (fix 3): an earlier draft's result stays current only if the rebuilt inputs reproduce its numbers
+       exactly; then the recalculated result and its inputs are adopted, so the inputs hash, trace and curves match what a
+       save stores. Otherwise, or when the rebuilt uptake needs Custom while custom curves are off, the result is stale and
+       the assumptions check must be run again. */
     if (!s.responseCurve && inp.method === 'response') {
-      const re = safe(() => E.calculate(buildInputs()), null), key = r => JSON.stringify(r && [r.errors, r.totals, r.segments]);
-      if (!re || key(re) !== key(s.result)) state.resultSig = null;
+      const bi = buildInputs(), re = safe(() => E.calculate(bi), null), key = r => JSON.stringify(r && [r.errors, r.totals, r.segments]);
+      const customOff = rcFlags().allowCustomCurve === false && Object.keys(state.responseCurve.assignment).some(a => state.responseCurve.assignment[a] === RC_CUSTOM);
+      if (re && !customOff && key(re) === key(s.result)) { state.result = clone(re); state.resultInputs = clone(bi); }
+      else { state.resultSig = null; if (customOff) state.checkpoints.assumptions = null; }
     }
     state.checkRuns = { inputs: null, assumptions: null };
     aiAfterClone(s);
