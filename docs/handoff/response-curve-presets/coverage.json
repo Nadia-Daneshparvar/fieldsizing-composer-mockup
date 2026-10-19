@@ -1,0 +1,856 @@
+{
+  "must_have_total": 5,
+  "must_have_covered": 5,
+  "items": [
+    {
+      "requirement_id": "R001",
+      "priority": "Must-Have",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R002",
+      "priority": "Must-Have",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R003",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R004",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R005",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R006",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R007",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R008",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R009",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R010",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R011",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R012",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-uptake-by-archetype-wizard"
+      ],
+      "deck_slides": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ]
+    },
+    {
+      "requirement_id": "R013",
+      "priority": "Must-Have",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R014",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R015",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R016",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R017",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R018",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R019",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R020",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R021",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R022",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "step-2-custom-curve-wizard"
+      ],
+      "deck_slides": [
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "requirement_id": "R023",
+      "priority": "Must-Have",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R024",
+      "priority": "Must-Have",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R025",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R026",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R027",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R028",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R029",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R030",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R031",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R032",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R033",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R034",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R035",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R036",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-presets-admin-config-panel"
+      ],
+      "deck_slides": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23
+      ]
+    },
+    {
+      "requirement_id": "R037",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R038",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R039",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R040",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R041",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R042",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R043",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-default-assignment-admin-config-panel"
+      ],
+      "deck_slides": [
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "requirement_id": "R044",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-curve-library-admin-config-panel"
+      ],
+      "deck_slides": [
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+      ]
+    },
+    {
+      "requirement_id": "R045",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-curve-library-admin-config-panel"
+      ],
+      "deck_slides": [
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+      ]
+    },
+    {
+      "requirement_id": "R046",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-curve-library-admin-config-panel"
+      ],
+      "deck_slides": [
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+      ]
+    },
+    {
+      "requirement_id": "R047",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-curve-library-admin-config-panel"
+      ],
+      "deck_slides": [
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+      ]
+    },
+    {
+      "requirement_id": "R048",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-curve-library-admin-config-panel"
+      ],
+      "deck_slides": [
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37
+      ]
+    },
+    {
+      "requirement_id": "R049",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-flags-admin-config-panel"
+      ],
+      "deck_slides": [
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44
+      ]
+    },
+    {
+      "requirement_id": "R050",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-flags-admin-config-panel"
+      ],
+      "deck_slides": [
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44
+      ]
+    },
+    {
+      "requirement_id": "R051",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-flags-admin-config-panel"
+      ],
+      "deck_slides": [
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44
+      ]
+    },
+    {
+      "requirement_id": "R052",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-flags-admin-config-panel"
+      ],
+      "deck_slides": [
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44
+      ]
+    },
+    {
+      "requirement_id": "R053",
+      "priority": "Unclassified",
+      "prototype_pages": [
+        "admin-configurator-flags-admin-config-panel"
+      ],
+      "deck_slides": [
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44
+      ]
+    }
+  ],
+  "mapping_confidence": "medium",
+  "validation_findings": []
+}
