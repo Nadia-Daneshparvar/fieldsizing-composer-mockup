@@ -1683,7 +1683,7 @@
   function resFilterCard(r) {
     const sps = resSpecs(r);
     if (!sps.length) return '';
-    /* 2026-10-12 review (Kunal): FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
+    /* 2026-10-12 SME review: FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
        label and hint now say so, and each specialty row in the roll-up links to its tab. */
     return card({ id: 'c-resfilter', body: `<p class="lbl mb8">FTE by decile: pick a specialty</p>${specTabs('res-spec', 'resSpec', resSpec(r), sps, 'FTE by decile: pick a specialty')}
       <p class="hint mt8">All specialties shows one row per specialty. Each specialty tab shows its FTE and calls by decile, with the same columns. The tab also filters Why this result and the calculation trace. Totals, the field size and ROI are model-wide; the ROI cutoff is one value for the whole model.</p>` });
@@ -1889,7 +1889,7 @@
      roll-ups), then average calls per reached HCP by decile per scenario. The earlier long comparison stays under Scenario detail. */
   const capText = sh => (sh.capacityInput && sh.capacityInput.mode === 'derived' ? `${fmt.int(sh.capacityInput.workingDays)} days × ${fmt.num1(sh.capacityInput.callsPerDay)} calls/day` : `${fmt.int(sh.capacity)} calls (entered)`);
   const reallocText = s => (s.inputs.method === 'workload' ? 'Not applicable' : (s.inputs.methodAssumptions || {}).reallocateExcluded === true ? 'Reallocated to covered segments' : 'Forfeited');
-  /* 2026-10-12 review (Melissa): top drivers live here, side by side, so their effect is read across scenarios rather than
+  /* 2026-10-12 SME review: top drivers live here, side by side, so their effect is read across scenarios rather than
      on one FTE page. Values are the engine's drivers for each snapshot; a value that differs from the first scenario is highlighted. */
   function driverRows(list) {
     const keyOf = (d, s) => driverLabel(d, s.result);
@@ -1903,8 +1903,8 @@
       return [k, s => { const v = valOf(s, k); return list.length > 1 && v !== base ? `<span class="cmp-diff">${v}</span>` : v; }, eff];
     }));
   }
-  /* 2026-10-12 review (Kunal): the comparison shows key assumptions only; "View all" opens every assumption the snapshot
-     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending Kunal's list. */
+  /* 2026-10-12 SME review: the comparison shows key assumptions only; "View all" opens every assumption the snapshot
+     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending the SME's list. */
   function allAssumptionsHtml(sc) {
     const i = sc.inputs, sh = i.shared || {}, o = i.methodAssumptions || {}, g = state.project.grain, m = i.method;
     const row = (k, v) => `<tr><th scope="row" class="rowh">${esc(k)}</th><td>${v}</td></tr>`;

@@ -37,3 +37,6 @@ Requirement IDs FR-44 to FR-48 are proposed and tagged in the page (turn on "Sho
 ### Unchanged
 - Recommended FTE and every other result for the existing samples and methods. The Affordable Coverage and Workload Buildup methods are untouched.
 - Value-only data for the Response Curve method stays blocked with the same message unless an Administrator turns the flag on.
+
+### Known limitation
+- File import still recognises only the four reference curve archetypes. Archetypes outside that set come from the synthetic samples for now.

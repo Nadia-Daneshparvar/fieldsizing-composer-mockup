@@ -749,7 +749,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     allocation: 'proportional', roiBasis: 'gross', stoppingRule: 'first-fail', costMode: 'fullyLoaded',
     costPerCallMethod: 'single-window', fteRounding: 'nearest', capacityInput: 'derived', minimumBoundary: 'inclusive',
     cutoffTie: 'include', reachAppliesTo: 'calls', maxCallsSource: 'segment', carryoverConvention: 'receivingYear',
-    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 review (Kunal): reallocate by default, toggle kept (was false, D15)
+    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 SME review: reallocate by default, toggle kept (was false, D15)
   };
   // capacityInput 'derived' (v0.5, CS-5) is a UI default only: the engine still treats an absent capacityInput as direct.
 
@@ -994,7 +994,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     Conservatives: Object.freeze({ delta: 5, gamma: 2.0, rho: 50 })
   });
   const ARCH_NAMES = Object.keys(ARCHETYPES);
-  // 2026-10-12 review (Kunal): gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
+  // 2026-10-12 SME review: gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
   // values above. Decision 9 is amended: the defaults stay the reference values, but the user can change the curve shape.
   // delta cancels under normalization, so it is not an input. Absent or partial curveParams fall back to the defaults.
   // fs-engine 1.11.0 (response-curve presets): curveParams may name ANY archetype id (FR-47). delta is now an input (default 5).
@@ -1377,7 +1377,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       const checkSumPct = F ? (sfEntered !== null ? sfEntered : impliedSfPct) + otherPctEff + carryoverSharePct : null;
       const floored = mode === 'carryover+other' && F - other - carry < -amountTol(F);
       if (mode === 'carryover+other' && F) {
-        // 2026-10-12 review (Kunal): only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
+        // 2026-10-12 SME review: only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
         // carrying over (diminishing) from earlier cohorts, so an entered Salesforce-impactable % is not expected to add up.
         if (i === 0 && Math.abs(checkSumPct - 100) > CHECK_TOL_PTS + 1e-9 && !(floored && sfEntered === null))
           warns.push({ code: 'shares-not-100', path: yPath(y, 'sfPct'),
@@ -7659,7 +7659,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   function resFilterCard(r) {
     const sps = resSpecs(r);
     if (!sps.length) return '';
-    /* 2026-10-12 review (Kunal): FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
+    /* 2026-10-12 SME review: FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
        label and hint now say so, and each specialty row in the roll-up links to its tab. */
     return card({ id: 'c-resfilter', body: `<p class="lbl mb8">FTE by decile: pick a specialty</p>${specTabs('res-spec', 'resSpec', resSpec(r), sps, 'FTE by decile: pick a specialty')}
       <p class="hint mt8">All specialties shows one row per specialty. Each specialty tab shows its FTE and calls by decile, with the same columns. The tab also filters Why this result and the calculation trace. Totals, the field size and ROI are model-wide; the ROI cutoff is one value for the whole model.</p>` });
@@ -7865,7 +7865,7 @@ abbr[title] { text-decoration: none; cursor: help; }
      roll-ups), then average calls per reached HCP by decile per scenario. The earlier long comparison stays under Scenario detail. */
   const capText = sh => (sh.capacityInput && sh.capacityInput.mode === 'derived' ? `${fmt.int(sh.capacityInput.workingDays)} days × ${fmt.num1(sh.capacityInput.callsPerDay)} calls/day` : `${fmt.int(sh.capacity)} calls (entered)`);
   const reallocText = s => (s.inputs.method === 'workload' ? 'Not applicable' : (s.inputs.methodAssumptions || {}).reallocateExcluded === true ? 'Reallocated to covered segments' : 'Forfeited');
-  /* 2026-10-12 review (Melissa): top drivers live here, side by side, so their effect is read across scenarios rather than
+  /* 2026-10-12 SME review: top drivers live here, side by side, so their effect is read across scenarios rather than
      on one FTE page. Values are the engine's drivers for each snapshot; a value that differs from the first scenario is highlighted. */
   function driverRows(list) {
     const keyOf = (d, s) => driverLabel(d, s.result);
@@ -7879,8 +7879,8 @@ abbr[title] { text-decoration: none; cursor: help; }
       return [k, s => { const v = valOf(s, k); return list.length > 1 && v !== base ? `<span class="cmp-diff">${v}</span>` : v; }, eff];
     }));
   }
-  /* 2026-10-12 review (Kunal): the comparison shows key assumptions only; "View all" opens every assumption the snapshot
-     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending Kunal's list. */
+  /* 2026-10-12 SME review: the comparison shows key assumptions only; "View all" opens every assumption the snapshot
+     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending the SME's list. */
   function allAssumptionsHtml(sc) {
     const i = sc.inputs, sh = i.shared || {}, o = i.methodAssumptions || {}, g = state.project.grain, m = i.method;
     const row = (k, v) => `<tr><th scope="row" class="rowh">${esc(k)}</th><td>${v}</td></tr>`;

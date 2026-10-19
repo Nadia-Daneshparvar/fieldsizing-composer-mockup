@@ -127,7 +127,7 @@
     allocation: 'proportional', roiBasis: 'gross', stoppingRule: 'first-fail', costMode: 'fullyLoaded',
     costPerCallMethod: 'single-window', fteRounding: 'nearest', capacityInput: 'derived', minimumBoundary: 'inclusive',
     cutoffTie: 'include', reachAppliesTo: 'calls', maxCallsSource: 'segment', carryoverConvention: 'receivingYear',
-    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 review (Kunal): reallocate by default, toggle kept (was false, D15)
+    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 SME review: reallocate by default, toggle kept (was false, D15)
   };
   // capacityInput 'derived' (v0.5, CS-5) is a UI default only: the engine still treats an absent capacityInput as direct.
 

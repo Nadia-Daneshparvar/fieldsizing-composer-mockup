@@ -21,7 +21,7 @@ Open `index-no-ai-claude.html`. Turn on **Show requirement IDs** in the header t
 
 - **Existing samples are unchanged.** Load the original synthetic sample: its four archetypes start as Custom with the earlier curve values and the note "Synthetic sample reference curves". Its Recommended FTE is the same as before this change, for every method.
 - **Value-only data.** With **Allow value-only data for the response curve method** off (the default), value-only data shows the same message as today. With it on, a single **All HCPs** uptake row appears and the calculation runs.
-- **No hidden default.** An archetype in the data that the default assignment does not list (for example from an imported file) starts as **Not chosen**, and the assumptions check asks you to choose an uptake for it. No curve is assumed silently.
+- **No hidden default.** An archetype in the data that the default assignment does not list (for example after an Administrator removes it from the default assignment) starts as **Not chosen**, and the assumptions check asks you to choose an uptake for it. No curve is assumed silently.
 - **Earlier drafts.** A draft saved before this change reopens with its stored curves. A curve that was edited becomes Custom with the note "Curve values carried over from an earlier draft", and recalculates to the same result.
 
 ## Questions for the reviewers
@@ -31,3 +31,4 @@ These are open points to decide. They are not defects.
 1. **Keeping the reference curve on earlier drafts.** In an earlier draft, an archetype that used the reference curve has no uptake chosen. After any edit, the assumptions check asks for one, and none of the four presets equals the reference curve. Should there be a one-click way to keep it?
 2. **The mix message when an archetype has no uptake.** While an archetype in the data has no uptake chosen, the mix message reports only the share of the archetypes that do have one. Is that wording acceptable?
 3. **The Result page on very narrow screens.** At 320 px wide, the reallocation table on the Result page is wider than the screen. This was already the case before this change.
+4. **File import and other archetype names.** File import still recognises only the four reference curve archetypes: entity-level files with other archetype names are rejected, and summary-level share columns for other archetype names are not read. Archetypes outside the reference set come from the synthetic samples for now. Should import support them in a follow-up?

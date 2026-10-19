@@ -17,7 +17,7 @@
     Conservatives: Object.freeze({ delta: 5, gamma: 2.0, rho: 50 })
   });
   const ARCH_NAMES = Object.keys(ARCHETYPES);
-  // 2026-10-12 review (Kunal): gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
+  // 2026-10-12 SME review: gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
   // values above. Decision 9 is amended: the defaults stay the reference values, but the user can change the curve shape.
   // delta cancels under normalization, so it is not an input. Absent or partial curveParams fall back to the defaults.
   // fs-engine 1.11.0 (response-curve presets): curveParams may name ANY archetype id (FR-47). delta is now an input (default 5).
@@ -400,7 +400,7 @@
       const checkSumPct = F ? (sfEntered !== null ? sfEntered : impliedSfPct) + otherPctEff + carryoverSharePct : null;
       const floored = mode === 'carryover+other' && F - other - carry < -amountTol(F);
       if (mode === 'carryover+other' && F) {
-        // 2026-10-12 review (Kunal): only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
+        // 2026-10-12 SME review: only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
         // carrying over (diminishing) from earlier cohorts, so an entered Salesforce-impactable % is not expected to add up.
         if (i === 0 && Math.abs(checkSumPct - 100) > CHECK_TOL_PTS + 1e-9 && !(floored && sfEntered === null))
           warns.push({ code: 'shares-not-100', path: yPath(y, 'sfPct'),
