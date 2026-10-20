@@ -683,8 +683,16 @@
       if (grain === 'entity' && ['entities', 'compositeValue'].includes(f.id)) return false;
       return segIds.has(f.id);
     }).map(f => Object.assign({}, f, { required: req.includes(f.id) }));
+    // Archetypes an Administrator added to the live configuration get share columns too (same shape as FSFields' own).
+    if (m === 'response' && grain === 'summary') liveArchetypes().forEach(a => {
+      const id = `archetypeMix.${a}`;
+      if (!F.MAPPING_FIELDS.some(f => f.id === id)) base.push({ id, label: `${a} share %`, optional: true, grain: 'summary', methods: ['response'], required: false,
+        aliases: [`${a.toLowerCase()} %`, `${a.toLowerCase()} share`, `% ${a.toLowerCase()}`, a.toLowerCase()] });
+    });
     return base;
   }
+  /* The live configuration's archetypes, passed to the importer so names an Administrator added are recognised. */
+  const liveArchetypes = () => Object.keys((state.config && state.config.defaultAssignment) || {});
   const flowSheet = () => state.importFlow.sheets[state.importFlow.sheetIndex];
   const headerCells = () => (flowSheet().rows[state.importFlow.headerRow] || []).map((c, i) => (c === '' || c == null ? `Column ${i + 1}` : String(c)));
   function confText(fid) {
@@ -2415,7 +2423,7 @@
       if (!sheets.length) throw { message: 'The file has no readable sheets.' };
       let best = 0;
       if (typeof IO.rankSheets === 'function') { const rk = safe(() => IO.rankSheets(res, m), null); if (rk && rk.length) { const k = sheets.findIndex(x => x.name === rk[0].name); if (k >= 0) best = k; } }
-      const det = IO.detect(sheets[best], m, { sheets });
+      const det = IO.detect(sheets[best], m, { sheets, archetypes: liveArchetypes() });
       const tabs = Array.isArray(det.tabsAsSpecialties) && det.tabsAsSpecialties.length >= 2 ? det.tabsAsSpecialties.slice() : null;
       state.importFlow = { step: 'source', fileName, sheets, sheetIndex: best, headerRow: det.headerRow, detectedHeader: det.headerRow, inputGrain: det.inputGrain, detectedGrain: det.inputGrain,
         mapping: Object.assign({}, det.mapping), confidence: Object.assign({}, det.confidence || {}), manual: {}, reviewed: false, applied: null, error: null, tabs, tabsOn: !!tabs };
@@ -2428,7 +2436,7 @@
   }
   function wizSetSheet(i) {
     const fl = state.importFlow; fl.sheetIndex = i;
-    const det = IO.detect(fl.sheets[i], method(), { sheets: fl.sheets });
+    const det = IO.detect(fl.sheets[i], method(), { sheets: fl.sheets, archetypes: liveArchetypes() });
     const tabs = Array.isArray(det.tabsAsSpecialties) && det.tabsAsSpecialties.length >= 2 ? det.tabsAsSpecialties.slice() : null;
     Object.assign(fl, { headerRow: det.headerRow, detectedHeader: det.headerRow, inputGrain: det.inputGrain, detectedGrain: det.inputGrain, mapping: Object.assign({}, det.mapping), confidence: Object.assign({}, det.confidence || {}), manual: {}, reviewed: false, applied: null, tabs, tabsOn: !!tabs });
     render();
@@ -2439,7 +2447,7 @@
     mappingFieldsFor(method(), fl.inputGrain).forEach(f => { if (fl.mapping[f.id] != null) mapping[f.id] = fl.mapping[f.id]; });
     if (fl.tabsOn) delete mapping.specialty;   // CS-3 tabs mode: the specialty is the sheet name
     const extra = fl.tabsOn && fl.tabs ? { tabsAsSpecialties: true, sheets: fl.tabs.slice(), workbook: { sheets: fl.sheets } } : undefined;
-    fl.applied = safe(() => IO.applyMapping(flowSheet(), { headerRow: fl.headerRow, inputGrain: fl.inputGrain, mapping }, method(), extra), { segments: [], entities: null, errors: [{ code: 'io', path: '', message: 'The import could not be applied.' }], warnings: [], rowCount: 0 });
+    fl.applied = safe(() => IO.applyMapping(flowSheet(), { headerRow: fl.headerRow, inputGrain: fl.inputGrain, mapping, archetypes: liveArchetypes() }, method(), extra), { segments: [], entities: null, errors: [{ code: 'io', path: '', message: 'The import could not be applied.' }], warnings: [], rowCount: 0 });
     fl.usedMapping = mapping;
   }
   function wizImport() {
@@ -2858,13 +2866,13 @@
         let k = 0;
         const rk = typeof IO.rankSheets === 'function' ? safe(() => IO.rankSheets(res, m), null) : null;
         if (rk && rk.length) { const j = sheets.findIndex(x => x.name === rk[0].name); if (j >= 0) k = j; }
-        const sh = sheets[k], det = safe(() => IO.detect(sh, m), null);
+        const sh = sheets[k], det = safe(() => IO.detect(sh, m, { sheets: [sh], archetypes: liveArchetypes() }), null);
         if (!det) { failed[m] = []; return; }
         const missing = F.requiredMapping(m, det.inputGrain).filter(x => det.mapping[x] == null);
         if (missing.length) { failed[m] = missing; return; }
         const mapping = {};
         mappingFieldsFor(m, det.inputGrain, DEFAULTS.allocation).forEach(f => { if (det.mapping[f.id] != null) mapping[f.id] = det.mapping[f.id]; });
-        const ap = safe(() => IO.applyMapping(sh, { headerRow: det.headerRow, inputGrain: det.inputGrain, mapping }, m), null);
+        const ap = safe(() => IO.applyMapping(sh, { headerRow: det.headerRow, inputGrain: det.inputGrain, mapping, archetypes: liveArchetypes() }, m), null);
         if (!ap || (ap.errors || []).length || !(ap.segments || []).length) { failed[m] = []; return; }
         byMethod[m] = { sheetName: sh.name, headerRow: det.headerRow, inputGrain: det.inputGrain, mapping, confidence: Object.assign({}, det.confidence || {}),
           heads: (sh.rows[det.headerRow] || []).map((c, i) => (c === '' || c == null ? `Column ${i + 1}` : String(c))),

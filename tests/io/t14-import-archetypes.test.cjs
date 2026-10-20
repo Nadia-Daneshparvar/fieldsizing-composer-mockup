@@ -42,3 +42,18 @@ test('summary grain: reference-only share columns import as before (fractions co
   const r = run('Segment,Entities,Composite value,Reach %,Loyalists %,Splitters %,Dabblers %\nD1,10,100,50,0.5,0.3,0.2\n');
   assert.deepEqual(r.segments[0].archetypeMix, { Loyalists: 50, Splitters: 30, Dabblers: 20, Conservatives: 0 });
 });
+
+test('live configuration archetypes (an Administrator added one) are recognised when the page passes them', () => {
+  const ent = sheet('HCP ID,Decile,Value,Curve archetype,Reach %\n1,1,100,Innovators,50\n2,1,80,Prospects,50\n');
+  assert.equal(FSIO.applyMapping(ent, FSIO.detect(ent, 'response'), 'response').errors[0].code, 'unknown-archetype', 'not without the live list');
+  const de = FSIO.detect(ent, 'response', { archetypes: ['Innovators'] });
+  const re = FSIO.applyMapping(ent, Object.assign({}, de, { archetypes: ['Innovators'] }), 'response');
+  assert.deepEqual(re.errors, []);
+  assert.deepEqual(re.segments[0].archetypeMix, { Innovators: 50, Prospects: 50 });
+  const sum = sheet('Segment,Entities,Composite value,Reach %,Innovators %,Prospects %\nD1,10,100,50,60,40\n');
+  const ds = FSIO.detect(sum, 'response', { sheets: [sum], archetypes: ['Innovators'] });
+  assert.equal(ds.mapping['archetypeMix.Innovators'], 4);
+  assert.deepEqual(FSIO.applyMapping(sum, ds, 'response', { archetypes: ['Innovators'] }).segments[0].archetypeMix, { Innovators: 60, Prospects: 40 });
+  // The list is scoped to the call: the next call without it is back to reference + seed configuration names.
+  assert.equal(FSIO.detect(sum, 'response').mapping['archetypeMix.Innovators'], undefined);
+});

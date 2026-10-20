@@ -536,8 +536,14 @@
   }
   /* Archetypes the importer recognises: the four reference names plus every configuration archetype the mapping fields
      list (FSFields.MAPPING_FIELDS archetypeMix.*). Reference-only files import exactly as before. */
+  let LIVE_ARCH = null;   // the page's live configuration archetypes, for the duration of one detect / applyMapping call
+  function withArchetypes(list, fn) {
+    const prev = LIVE_ARCH;
+    LIVE_ARCH = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim()) : null;
+    try { return fn(); } finally { LIVE_ARCH = prev; }
+  }
   function importArch() {
-    const extra = mappingFields(fields()).map(f => f.id).filter(id => id.startsWith('archetypeMix.')).map(id => id.slice(13));
+    const extra = mappingFields(fields()).map(f => f.id).filter(id => id.startsWith('archetypeMix.')).map(id => id.slice(13)).concat(LIVE_ARCH || []);
     return ARCH.concat(extra.filter((a, i) => !ARCH.includes(a) && extra.indexOf(a) === i));
   }
   function archetypeName(v) {
@@ -601,7 +607,12 @@
   /* detect(sheet, method, workbook?) — workbook ({sheets} or an array of sheets) is optional. When given, and two or more
      visible sheets (this one included) share this sheet's data header shape, the result carries
      tabsAsSpecialties: [sheet names] (CS-3 "one tab per specialty"). Without a workbook the result is as before. */
+  /* workbook.archetypes / extra.archetypes (optional): archetype names from the live configuration, recognised on import in
+     addition to the reference and seed configuration archetypes. */
   function detect(sheet, method, workbook) {
+    return withArchetypes(workbook && !Array.isArray(workbook) ? workbook.archetypes : null, () => detectWith(sheet, method, workbook));
+  }
+  function detectWith(sheet, method, workbook) {
     const d = detectOne(sheet, method);
     const list = workbook && (Array.isArray(workbook) ? workbook : workbook.sheets);
     if (Array.isArray(list) && list.length > 1 && !('specialty' in d.mapping) && isNum(d.mapping.segment)) {
@@ -726,6 +737,9 @@
      { segment: "<specialty> · <decile>", specialty, decile, ... }, and entity rows carry the same composed segment key.
      With no specialty the result is exactly as before (no specialty/decile keys). */
   function applyMapping(sheet, opts, method, extra) {
+    return withArchetypes((extra && extra.archetypes) || (opts && opts.archetypes), () => applyMappingWith(sheet, opts, method, extra));
+  }
+  function applyMappingWith(sheet, opts, method, extra) {
     const F = fields();
     const rows = (sheet && sheet.rows) || [];
     const o = opts || {};
