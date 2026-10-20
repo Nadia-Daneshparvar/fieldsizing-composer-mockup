@@ -53,7 +53,9 @@ async function buildText() {
 function q1() {
   const dirs = ['tests'];
   if (fs.existsSync(path.join(ROOT, '.private', 'tests'))) dirs.push('.private/tests');
-  const r = spawnSync(process.execPath, ['--test', ...dirs], { cwd: ROOT, encoding: 'utf8' });
+  // Explicit test files: Node 22+ treats a directory argument as a script, not a folder to search.
+  const files = d => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap(e => e.isDirectory() ? files(`${d}/${e.name}`) : /\.test\.c?js$/.test(e.name) ? [`${d}/${e.name}`] : []);
+  const r = spawnSync(process.execPath, ['--test', ...dirs.flatMap(files).sort()], { cwd: ROOT, encoding: 'utf8' });
   const out = (r.stdout || '') + (r.stderr || '');
   const m = k => { const x = out.match(new RegExp(`^# ${k} (\\d+)`, 'm')); return x ? +x[1] : null; };
   const pass = m('pass'), fail = m('fail');

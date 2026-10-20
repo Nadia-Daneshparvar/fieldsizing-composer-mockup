@@ -36,7 +36,7 @@ The HTML file is built from the modules in `src/` by plain concatenation; there 
 ```sh
 node build.mjs            # rebuild index-no-ai-claude.html from src/
 node build.mjs --check    # fail if the committed file differs from the build
-node --test tests/        # tests (node:test, Node 18+); browser tests skip without a configured headless Chrome
+node --test tests/*/*.test.cjs   # tests (node:test, Node 18+); browser tests skip without a configured headless Chrome
 node scripts/qc.mjs --phase P7 --base main   # deterministic QC checks
 ```
 
