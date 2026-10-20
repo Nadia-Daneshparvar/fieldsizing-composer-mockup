@@ -534,9 +534,15 @@
     return String(s === null || s === undefined ? '' : s).toLowerCase()
       .replace(/[_\-\/.:()#\[\]]+/g, ' ').replace(/\s*%/g, ' %').replace(/\s+/g, ' ').trim();
   }
+  /* Archetypes the importer recognises: the four reference names plus every configuration archetype the mapping fields
+     list (FSFields.MAPPING_FIELDS archetypeMix.*). Reference-only files import exactly as before. */
+  function importArch() {
+    const extra = mappingFields(fields()).map(f => f.id).filter(id => id.startsWith('archetypeMix.')).map(id => id.slice(13));
+    return ARCH.concat(extra.filter((a, i) => !ARCH.includes(a) && extra.indexOf(a) === i));
+  }
   function archetypeName(v) {
     const n = norm(v).replace(/ %$/, '').replace(/\s+/g, '');
-    for (const a of ARCH) { const l = a.toLowerCase(); if (n === l || n === l.slice(0, -1)) return a; }
+    for (const a of importArch()) { const l = a.toLowerCase().replace(/\s+/g, ''); if (n === l || n === l.slice(0, -1)) return a; }
     return null;
   }
   const NEG_TOKENS = /\b(max|maximum|min|minimum|mix|share)\b/;
@@ -880,7 +886,7 @@
         if (has('archetype')) {
           const raw = get(d.row, 'archetype');
           archetype = archetypeName(raw);
-          if (!archetype && method === 'response') { err('unknown-archetype', `${RP(d)}.archetype`, `${RW(d)}: Curve archetype "${cellStr(raw)}" is not one of ${ARCH.join(', ')}.`); ok = false; }
+          if (!archetype && method === 'response') { err('unknown-archetype', `${RP(d)}.archetype`, `${RW(d)}: Curve archetype "${cellStr(raw)}" is not one of ${importArch().join(', ')}.`); ok = false; }
           if (!archetype && raw !== null && raw !== undefined && method !== 'response') archetype = cellStr(raw);
         }
         const reach = has('reachPct') ? readReach(d) : null;
@@ -941,13 +947,13 @@
           if (!same) warn('planned-calls-vary-in-segment', `segments.${k}.plannedCalls`, `Segment ${k}: planned calls differ between entities; the average (${Math.round(s.plannedCalls * 100) / 100}) is used and must be a whole number before calculating.`);
         }
         const archTotal = Object.keys(a.arch).reduce((t, x) => t + a.arch[x], 0);
-        if (archTotal > 0) { s.archetypeMix = {}; ARCH.forEach(x => { s.archetypeMix[x] = 100 * (a.arch[x] || 0) / archTotal; }); }
+        if (archTotal > 0) { s.archetypeMix = {}; (Object.keys(a.arch).every(x => ARCH.includes(x)) ? ARCH : Object.keys(a.arch)).forEach(x => { s.archetypeMix[x] = 100 * (a.arch[x] || 0) / archTotal; }); }
         return s;
       });
       if (!has('reachPct')) warn('reach-not-supplied', 'reachPct', 'No reach column was mapped; enter Reach % for each segment before calculating.');
     } else {
       const seen = new Map();
-      const mixCols = ARCH.filter(a => isNum(mapping['archetypeMix.' + a]));
+      const mixCols = importArch().filter(a => isNum(mapping['archetypeMix.' + a]));
       dataRows.forEach(d => {
         if (isTotalRow(d)) { warn('total-row-excluded', `${RP(d)}`, `${RW(d)} looks like a total row ("${totalText(d)}") and was not imported.`); return; }
         rowCount++;
@@ -974,12 +980,12 @@
             mix[a] = p.n === null ? 0 : p.n;
           });
           if (ok) {
-            const tot = ARCH.reduce((t, a) => t + (mix[a] || 0), 0);
+            const tot = Object.keys(mix).reduce((t, a) => t + (mix[a] || 0), 0);
             if (tot > 0 && tot <= 1.0000001 && !mixCols.some(a => /%/.test(String(d.row[mapping['archetypeMix.' + a]])))) {
-              ARCH.forEach(a => { if (a in mix) mix[a] = Math.round(mix[a] * 100 * 1e9) / 1e9; });
+              Object.keys(mix).forEach(a => { mix[a] = Math.round(mix[a] * 100 * 1e9) / 1e9; });
               warn('mix-fraction-converted', `${RP(d)}.archetypeMix`, `${RW(d)}: archetype mix looked like fractions and was converted to percent.`);
             }
-            ARCH.forEach(a => { if (!(a in mix)) mix[a] = 0; });
+            if (mixCols.every(a => ARCH.includes(a))) ARCH.forEach(a => { if (!(a in mix)) mix[a] = 0; });   // reference-only files as before
           }
         }
         if (!ok) return;

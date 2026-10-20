@@ -282,7 +282,10 @@
   const valueMode = () => state.valueMode[method()] || 'chain';
   const inputsSig = () => JSON.stringify({ p: state.project, g: state.inputGrain, s: state.segments.map(s => [s.segment, s.entities, s.compositeValue, s.archetypeMix, s.archetype]), e: state.entities ? state.entities.length : 0 });
   /* CS-7: a Response draft marked value-only cannot pass the assumptions check, so the choice is part of the signature. */
-  const assumptionsSig = () => { const s = JSON.stringify(buildInputs()); return method() === 'response' && state.respSegType === 'value' ? s + (valueOnlyRuns() ? '|value-only-all' : '|value-only') : s; };
+  /* An uptake set to Custom while an Administrator has turned custom curves off cannot pass the assumptions check, so that
+     state is part of the signature too: turning the flag off makes an existing Custom result stale. */
+  const customBlocked = () => rcFlags().allowCustomCurve === false && Object.keys(state.responseCurve.assignment).some(a => state.responseCurve.assignment[a] === RC_CUSTOM);
+  const assumptionsSig = () => { let s = JSON.stringify(buildInputs()); if (method() === 'response' && state.respSegType === 'value') s += valueOnlyRuns() ? '|value-only-all' : '|value-only'; return method() === 'response' && customBlocked() ? s + '|custom-off' : s; };
   const resultIsCurrent = () => !!state.result && state.resultSig === assumptionsSig();
 
   function stageStatus(id) {
@@ -2495,7 +2498,7 @@
        the assumptions check must be run again. */
     if (!s.responseCurve && inp.method === 'response') {
       const bi = buildInputs(), re = safe(() => E.calculate(bi), null), key = r => JSON.stringify(r && [r.errors, r.totals, r.segments]);
-      const customOff = rcFlags().allowCustomCurve === false && Object.keys(state.responseCurve.assignment).some(a => state.responseCurve.assignment[a] === RC_CUSTOM);
+      const customOff = customBlocked();
       if (re && !customOff && key(re) === key(s.result)) { state.result = clone(re); state.resultInputs = clone(bi); }
       else { state.resultSig = null; if (customOff) state.checkpoints.assumptions = null; }
     }

@@ -15,6 +15,7 @@ Requirement IDs FR-44 to FR-48 are proposed and tagged in the page (turn on "Sho
 
   Every change is audited and raises the configuration version.
 - **Export and summary (FR-48).** The Scenario Summary shows the uptake per archetype, Custom with its source note, and the configuration version. Snapshots store the configuration and the uptake choices. The workbook adds a Configuration sheet and shows the uptake, source and effective curve values on the Assumptions and Response Curves sheets.
+- **Import.** File import recognises the archetypes in the configuration as well as the four reference archetypes, on entity-level files (curve archetype column) and summary-level files (share columns). Files with only the reference archetypes import as before.
 - **New synthetic sample.** "Load uptake presets synthetic sample" loads archetypes Prospects, Trialists and Early Leaders.
 - **Engine (fs-engine 1.11.0).**
   - `resolveCurves` turns an uptake assignment into curve values with provenance.
@@ -31,12 +32,10 @@ Requirement IDs FR-44 to FR-48 are proposed and tagged in the page (turn on "Sho
 ### Changed
 - The inline γ/ρ table on Model Assumptions is replaced by the uptake picker. The original synthetic samples load their four archetypes as Custom with the earlier values (note "Synthetic sample reference curves"), so their results are unchanged.
 - An archetype with no uptake chosen blocks the assumptions check; no curve is assumed silently.
+- Turning custom curves off makes an existing Custom result out of date; the assumptions check then asks for a preset.
 - Earlier drafts reopen with their stored curves. A curve that was edited becomes Custom, with the note "Curve values carried over from an earlier draft", and recalculates to the same result.
 - The page source is split into modules under `src/` and rebuilt by `node build.mjs`; the built file keeps its name.
 
 ### Unchanged
 - Recommended FTE and every other result for the existing samples and methods. The Affordable Coverage and Workload Buildup methods are untouched.
 - Value-only data for the Response Curve method stays blocked with the same message unless an Administrator turns the flag on.
-
-### Known limitation
-- File import still recognises only the four reference curve archetypes. Archetypes outside that set come from the synthetic samples for now.
