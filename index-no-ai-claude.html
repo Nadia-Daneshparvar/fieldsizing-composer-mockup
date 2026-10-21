@@ -51,6 +51,13 @@ a { color: var(--navy); }
 .ibtn { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; border-radius: 4px; cursor: pointer; color: var(--navy); padding: 0; flex: none; position: relative; }
 .ibtn:hover { background: var(--surface-tinted); }
 .ibtn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+/* Administrator's response curve configuration entry (P3): icon-only at narrow widths so the avatar stays visible (WCAG 1.4.10). */
+.ab-cfg { white-space: nowrap; flex: none; }
+@media (max-width: 720px) {
+  .ab-right:has(.ab-cfg) { gap: 8px; }
+  .ab-cfg { width: 32px; min-width: 32px; padding: 0; justify-content: center; }
+  .ab-cfg .ab-cfg-lbl { display: none; }
+}
 .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--navy); color: #FFFFFF; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
 
 /* ---------- Drawer (49 / 241, overlays with navy 60% backdrop) ---------- */
@@ -742,9 +749,182 @@ abbr[title] { text-decoration: none; cursor: help; }
     allocation: 'proportional', roiBasis: 'gross', stoppingRule: 'first-fail', costMode: 'fullyLoaded',
     costPerCallMethod: 'single-window', fteRounding: 'nearest', capacityInput: 'derived', minimumBoundary: 'inclusive',
     cutoffTie: 'include', reachAppliesTo: 'calls', maxCallsSource: 'segment', carryoverConvention: 'receivingYear',
-    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 review (Kunal): reallocate by default, toggle kept (was false, D15)
+    reallocateExcluded: true, forecastMode: 'carryover+other'   // 2026-10-12 SME review: reallocate by default, toggle kept (was false, D15)
   };
   // capacityInput 'derived' (v0.5, CS-5) is a UI default only: the engine still treats an absent capacityInput as direct.
+
+  /* ---- Response curve uptake presets (FR-44..FR-48, proposed) ----
+     RESPONSE_CURVE_CONFIG is the frozen seed; the app deep-clones it into project state and the administrator edits the clone.
+     Preset values are the Beghou reference presets. Picker order is slow, moderate, steep, baseline: Baseline is not the
+     middle option. The curve library is an administrator reference only and never appears in the analyst picker. */
+  const deepFreeze = o => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.values(o).forEach(deepFreeze); Object.freeze(o); } return o; };
+  const RESPONSE_CURVE_RESERVED = deepFreeze({ custom: 'custom', all: 'ALL' });
+  const PRESET_SEEDS = [
+    { id: 'slow', label: 'Slow uptake', description: 'Response builds slowly: it takes more calls before the response levels off.', delta: 5, gamma: 1.5, rho: 11 },
+    { id: 'moderate', label: 'Moderate uptake', description: 'Response builds at a steady pace and levels off after a moderate number of calls.', delta: 5, gamma: 1.1, rho: 3.5 },
+    { id: 'steep', label: 'Steep uptake', description: 'Response builds quickly: the first few calls do most of the work.', delta: 5, gamma: 0.8, rho: 1.5 },
+    { id: 'baseline', label: 'Baseline', description: 'A general reference curve for when no archetype-specific uptake is known.', delta: 5, gamma: 1.3, rho: 7 }
+  ];
+  const presetSeed = p => Object.assign({}, p, { origin: 'beghou-reference', pickerVisible: true });
+  const CURVE_LIBRARY_STEPS = [
+    ['+4 Max', 0.2], ['+3.5', 0.4], ['+3 Higher', 0.6], ['+2.5', 0.8], ['+2 Very High', 1.1], ['+1.5', 1.4], ['+1 High', 1.8], ['+0.5', 2.3],
+    ['Base', 3.0], ['−0.5', 3.9], ['−1 Low', 5.0], ['−1.5', 6.5], ['−2 Very Low', 9.0], ['−2.5', 15], ['−3 Lower', 30], ['−3.5', 80], ['−4 Linear', 100000]
+  ];
+  const RESPONSE_CURVE_CONFIG = deepFreeze({
+    version: 1,
+    updatedBy: null,
+    updatedAt: null,
+    presets: PRESET_SEEDS.map(presetSeed),
+    curveLibrary: CURVE_LIBRARY_STEPS.map(([label, rho], i) => ({ id: `lib-${String(i + 1).padStart(2, '0')}`, label, delta: 5, gamma: 1, rho })),
+    defaultAssignment: { Prospects: 'slow', Trialists: 'moderate', 'Early Leaders': 'steep' },
+    flags: { allowValueOnlyResponse: false, allowCustomCurve: true }
+  });
+  // "Reset to Beghou reference" restores exactly these (a separate frozen copy, so edits to the config never reach it).
+  const REFERENCE_PRESETS = deepFreeze(PRESET_SEEDS.map(presetSeed));
+
+  // Every user-facing string for the response curve presets feature. `custom` and `all` are read by the engine trace.
+  const RESPONSE_CURVE_LABELS = deepFreeze({
+    // Picker and Model Assumptions (Step 2)
+    custom: 'Custom (from marketing mix)',
+    all: 'All HCPs',
+    uptake: 'Uptake',
+    uptakeByArchetype: 'Uptake by archetype',
+    uptakeHint: 'Choose how quickly each archetype responds to calls. The curve values behind each choice are shown under "Advanced: curve details".',
+    chooseUptake: 'Choose uptake',
+    notAssigned: 'Not chosen',
+    notAssignedHelp: 'No uptake is assumed: choose one for every archetype before checking assumptions.',
+    archetype: 'Curve archetype',
+    preset: 'Uptake preset',
+    advanced: 'Advanced: curve details',
+    advancedHint: 'Read-only. The curve values each uptake choice uses.',
+    halfOfPeak: 'Half of peak (calls)',
+    delta: 'Peak (δ)',
+    gamma: 'Shape (γ)',
+    rho: 'Saturation (ρ)',
+    customHint: 'Enter the curve values from your marketing-mix analysis. All three must be numbers above 0.',
+    customNotAllowed: 'Custom curves are turned off in the configuration.',
+    sourceNote: 'Source note for custom curves',
+    sourceNoteHelp: 'Say where the custom curve values come from, for example the marketing-mix study and its date.',
+    sourceNoteRequired: 'Enter a source note for the custom curves.',
+    curveLegendPreset: (archetype, preset) => `${archetype}: ${preset}`,
+    valueOnlyRowHint: 'The data has no archetypes, so one uptake applies to all HCPs.',
+    // Administrator configurator
+    configuratorTitle: 'Response curve configuration',
+    configuratorOpen: 'Response curve configuration',
+    configuratorHint: 'Set the uptake presets analysts can choose, the default uptake per archetype, and the feature flags. Every change is recorded in the audit trail.',
+    configuratorClose: 'Close',
+    configuratorAdminOnly: 'Only an Administrator can open the response curve configuration.',
+    tabs: { presets: 'Presets', defaultAssignment: 'Default assignment', curveLibrary: 'Curve library', flags: 'Flags' },
+    presetLabel: 'Label',
+    presetDescription: 'Description',
+    presetLabelRequired: 'Enter a label for the preset.',
+    presetValueInvalid: param => `${param} must be a number above 0.`,
+    pickerVisible: 'Show in the uptake picker',
+    origin: { 'beghou-reference': 'Beghou reference', client: 'Edited for this project' },
+    originLabel: 'Origin',
+    resetReference: 'Reset to Beghou reference',
+    copyIntoPreset: 'Copy into preset…',
+    copyTarget: 'Copy into which preset?',
+    referencePresets: 'Beghou reference presets',
+    referenceLibrary: 'Beghou reference curve library',
+    libraryStep: 'Step',
+    libraryHint: 'Reference only. Analysts never see this list; copy a step into a preset to make it available.',
+    defaultAssignmentHint: 'The uptake each archetype starts with when it appears in the data. An archetype not listed here starts with no uptake chosen.',
+    addArchetype: 'Add archetype',
+    archetypeName: 'Archetype name',
+    removeArchetype: name => `Remove ${name}`,
+    archetypeNameRequired: 'Enter an archetype name.',
+    archetypeNameDuplicate: 'That archetype is already listed.',
+    // P3 fix cycle 1 (additive): configurator validation and notices
+    archetypeNameReserved: 'That name is reserved by the tool. Choose another archetype name.',
+    presetValueComma: param => `${param}: use a point for decimals, not a comma (for example 1.5).`,
+    presetLabelTooLong: max => `Keep the label to ${max} characters or fewer.`,
+    presetDescriptionTooLong: max => `Keep the description to ${max} characters or fewer.`,
+    presetLabelDuplicate: 'Another preset already has that label.',
+    pickerVisibleLast: 'At least one preset must stay in the uptake picker.',
+    customOffInUse: names => `Custom curves are now off, but the default assignment still uses Custom for: ${names}. Choose a preset for each of them.`,
+    alreadyReference: 'The presets already match the Beghou reference. Nothing was changed.',
+    // P3 fix cycle 2 (additive)
+    presetValuePlainDecimal: param => `${param} must be a plain decimal number, for example 1.5 (digits and an optional decimal point only).`,
+    presetLabelIsCustom: 'That label is used for custom curves. Choose another label.',
+    archetypeNameTooLong: max => `Keep the archetype name to ${max} characters or fewer.`,
+    flagLabels: {
+      allowValueOnlyResponse: 'Allow value-only data for the response curve method',
+      allowCustomCurve: 'Allow custom curves'
+    },
+    flagHelp: {
+      allowValueOnlyResponse: 'Off by default: value-only data stays blocked for the response curve method. When on, data without archetypes uses one "All HCPs" uptake.',
+      allowCustomCurve: 'When on, analysts can enter their own curve values from a marketing-mix analysis, with a source note.'
+    },
+    flagState: { true: 'On', false: 'Off' },
+    configVersion: 'Configuration version',
+    configVersionText: v => `Configuration version ${v}`,
+    updatedBy: 'Last changed by',
+    updatedAt: 'Last changed',
+    neverUpdated: 'Not changed since setup',
+    // Audit wording
+    audit: {
+      configEdit: (field, from, to) => `${field}: ${from} → ${to}`,
+      configReset: 'Presets reset to Beghou reference',
+      libraryCopy: (step, preset) => `Curve library step ${step} copied into ${preset}`,
+      uptakeChange: (archetype, from, to) => `Uptake for ${archetype}: ${from} → ${to}`,
+      customValue: (archetype, param, from, to) => `Custom curve for ${archetype}, ${param}: ${from} → ${to}`,
+      sourceNote: (from, to) => `Custom curve source note: ${from} → ${to}`,
+      blank: '(blank)'
+    },
+    // Validation messages (keyed by the engine issue code)
+    validation: {
+      'custom-curve-invalid': (archetype, param) => `${archetype}: the custom curve ${param} must be a number above 0.`,
+      'custom-source-missing': () => 'Enter a source note for the custom curves.',
+      'unknown-archetype': archetype => `${archetype} has no uptake in this project. Choose an uptake for it.`,
+      'unknown-preset': (archetype, preset) => `${archetype}: the uptake "${preset}" is no longer in the configuration. Choose another.`,
+      unassigned: archetype => `Choose an uptake for ${archetype}.`
+    },
+    // Scenario summary and export
+    summaryHeading: 'Uptake by archetype',
+    customWithNote: note => `Custom (from marketing mix); source: ${note}`,
+    exportSheets: { configuration: 'Configuration' },
+    noConfiguration: 'No configuration recorded',
+    exportHeadings: {
+      assignment: 'Uptake by archetype',
+      effectiveCurves: 'Effective curve values',
+      presets: 'Presets',
+      curveLibrary: 'Curve library',
+      defaultAssignment: 'Default assignment',
+      flags: 'Flags',
+      resolutionRule: 'Uptake preset resolution'
+    },
+    exportColumns: {
+      archetype: 'Curve archetype', uptake: 'Uptake', source: 'Source', presetId: 'Preset id', label: 'Label', description: 'Description',
+      delta: 'Peak (δ)', gamma: 'Shape (γ)', rho: 'Saturation (ρ)', halfOfPeak: 'Half of peak (calls)', origin: 'Origin',
+      pickerVisible: 'Shown in picker', sourceNote: 'Source note', step: 'Step', flag: 'Flag', value: 'Value', field: 'Field'
+    },
+    resolutionRule: 'Each archetype uses the curve values of its chosen uptake preset from the configuration. Custom uses the values entered from a marketing-mix analysis, with a required source note. An archetype with no uptake chosen is not sized and is reported as a validation error.',
+    sourceLabel: { preset: 'Preset', custom: 'Custom (from marketing mix)' },
+    // Step 1: third synthetic sample
+    samplePresetsButton: 'Load uptake presets synthetic sample',
+    samplePresetsData: 'Synthetic uptake presets sample data',
+    // P7 (P2-m2): the archetype count comes from the sample itself, not a hard-coded 3
+    samplePresetsAudit: n => `Synthetic uptake presets sample project loaded (${n} ${n === 1 ? 'archetype' : 'archetypes'} with default uptake)`,
+    samplePresetsToast: 'Synthetic uptake presets sample loaded. Run the inputs check to continue.',
+    // P4 fix 1 (additive): Segmentation type audit wording when value-only data is allowed (one "All HCPs" uptake)
+    segTypeValueOnlyAllowed: 'Value only (one "All HCPs" uptake)',
+    // P4 fix 2 (additive): Step 2 table and Scenario Summary wording; earlier drafts without uptake choices
+    share: 'Share',
+    total: 'Total',
+    noArchetype: 'No archetype supplied',
+    notApplicable: 'Not applicable',
+    referenceCurve: 'Reference curve (earlier draft without an uptake choice)',
+    editedCurve: 'Edited curve (earlier draft without an uptake choice)',
+    carriedOverNote: 'Curve values carried over from an earlier draft',
+    // P7 cleanup (additive): engine validate() wording for a curve source with no curve values (P1-m3); configurator refusal
+    // of labels starting with the Custom word (P3-m3); Response Curves export wording (P5-F5): the effective-curves table
+    // uses the sheet's existing parameter headings, and a Custom row's Source cell does not repeat its Uptake cell.
+    provenanceWithoutCurve: id => `${id}: the curve source has no curve values.`,
+    presetLabelStartsCustom: word => `Labels starting with "${word}" are kept for custom curves. Choose another label.`,
+    curveSheetColumns: { delta: 'δ (delta)', gamma: 'γ (gamma)', rho: 'ρ (rho)' },
+    exportCustomSource: 'Marketing-mix analysis (see source note)'
+  });
 
   const MAPPING_FIELDS = [
     { id: 'entityId', label: 'Entity ID', aliases: ['id', 'entity id', 'hcp id', 'npi', 'account id', 'site id', 'customer id'] },
@@ -763,6 +943,12 @@ abbr[title] { text-decoration: none; cursor: help; }
       id: `archetypeMix.${a}`, label: `${a} share %`, optional: true, grain: 'summary', methods: ['response'],
       aliases: [`${a.toLowerCase()} %`, `${a.toLowerCase()} share`, `% ${a.toLowerCase()}`, a.toLowerCase()] }))
   ];
+  // FR-47 (proposed): share columns for the configuration's archetypes too, read from the config (no new literals), de-duplicated.
+  Object.keys(RESPONSE_CURVE_CONFIG.defaultAssignment).forEach(a => {
+    if (MAPPING_FIELDS.some(f => f.id === `archetypeMix.${a}`)) return;
+    MAPPING_FIELDS.push({ id: `archetypeMix.${a}`, label: `${a} share %`, optional: true, grain: 'summary', methods: ['response'],
+      aliases: [`${a.toLowerCase()} %`, `${a.toLowerCase()} share`, `% ${a.toLowerCase()}`, a.toLowerCase()] });
+  });
 
   function requiredMapping(method, inputGrain) {
     if (inputGrain === 'entity') {
@@ -783,7 +969,8 @@ abbr[title] { text-decoration: none; cursor: help; }
       (!f.summaryOnly || inputGrain === 'summary'));
   }
 
-  const FSFields = { GRAIN, METHODS, SEGMENT_FIELDS, RESULT_LABELS, ASSUMPTION_LABELS, OPTION_LABELS, OPTION_DEFAULTS, BINDING_LABELS, EXCLUSION_LABELS, ROLE_LABELS, MAPPING_FIELDS, requiredMapping, segmentFieldsFor };
+  const FSFields = { GRAIN, METHODS, SEGMENT_FIELDS, RESULT_LABELS, ASSUMPTION_LABELS, OPTION_LABELS, OPTION_DEFAULTS, BINDING_LABELS, EXCLUSION_LABELS, ROLE_LABELS, MAPPING_FIELDS, requiredMapping, segmentFieldsFor,
+    RESPONSE_CURVE_CONFIG, REFERENCE_PRESETS, RESPONSE_CURVE_LABELS, RESPONSE_CURVE_RESERVED };
   if (typeof module !== 'undefined') module.exports = FSFields; else root.FSFields = FSFields;
 })(this);
 
@@ -797,7 +984,7 @@ abbr[title] { text-decoration: none; cursor: help; }
 (function (root) {
   'use strict';
 
-  const VERSION = 'fs-engine 1.10.0';   // 1.10.0 (2026-10-12): curve parameters, proportional-only allocation, first-year check
+  const VERSION = 'fs-engine 1.11.0';   // 1.11.0 (2026-10-15): any curve archetype id, delta input, resolveCurves presets, value-only ALL curve, result.curves
 
   // Locked methodology (decision 9). delta cancels under normalization; kept for traceability.
   const ARCHETYPES = Object.freeze({
@@ -807,17 +994,72 @@ abbr[title] { text-decoration: none; cursor: help; }
     Conservatives: Object.freeze({ delta: 5, gamma: 2.0, rho: 50 })
   });
   const ARCH_NAMES = Object.keys(ARCHETYPES);
-  // 2026-10-12 review (Kunal): gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
+  // 2026-10-12 SME review: gamma and rho are user inputs per archetype (methodAssumptions.curveParams), defaulting to the
   // values above. Decision 9 is amended: the defaults stay the reference values, but the user can change the curve shape.
   // delta cancels under normalization, so it is not an input. Absent or partial curveParams fall back to the defaults.
+  // fs-engine 1.11.0 (response-curve presets): curveParams may name ANY archetype id (FR-47). delta is now an input (default 5).
+  // I-3 A1: an entry WITH provenance (preset or custom), whatever its name, is used exactly as given (delta defaults to 5 only
+  // when absent) and validate() requires delta/gamma/rho > 0 with no upper bound. Only a provenance-less entry on a reference
+  // name keeps the 1.10.0 rules: per-parameter fallback to the reference default (delta: absent or non-positive -> 5).
+  // Every other key brings its own gamma and rho. I-3 A2: a curveParams array is treated as {} (1.10.0 failed a non-empty one).
+  // 'ALL' is the reserved id of the value-only "All HCPs" curve (D3). Key order: reference archetypes, then curveParams order.
+  const DEFAULT_DELTA = 5;
+  const ALL_ID = 'ALL';
+  const curveParamsOf = ma => ((ma && ma.curveParams && typeof ma.curveParams === 'object' && !Array.isArray(ma.curveParams)) ? ma.curveParams : {});
+  const deltaOf = (u, d) => (isNum(u.delta) && u.delta > 0 ? u.delta : d);
+  const asGiven = u => Object.freeze({ delta: u.delta === undefined || u.delta === null ? DEFAULT_DELTA : u.delta, gamma: u.gamma, rho: u.rho });
   function archetypesFor(ma) {
-    const cp = (ma && ma.curveParams && typeof ma.curveParams === 'object') ? ma.curveParams : {};
+    const cp = curveParamsOf(ma), prov = provenanceOf(ma);
+    const hasProv = n => !!(prov[n] && typeof prov[n] === 'object');
     const out = {};
     ARCH_NAMES.forEach(n => {
-      const d = ARCHETYPES[n], u = cp[n] || {};
-      out[n] = Object.freeze({ delta: d.delta, gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
+      const d = ARCHETYPES[n], u = (cp[n] && typeof cp[n] === 'object') ? cp[n] : {};
+      out[n] = hasProv(n) && cp[n] ? asGiven(u)
+        : Object.freeze({ delta: deltaOf(u, d.delta), gamma: isNum(u.gamma) ? u.gamma : d.gamma, rho: isNum(u.rho) ? u.rho : d.rho });
+    });
+    Object.keys(cp).forEach(n => {
+      if (ARCHETYPES[n]) return;
+      out[n] = asGiven((cp[n] && typeof cp[n] === 'object') ? cp[n] : {});
     });
     return Object.freeze(out);
+  }
+  // True when the input uses only the 1.10.0 shape (reference keys, no provenance): trace text then stays exactly 1.10.0.
+  const legacyCurves = ma => !(ma && ma.curveProvenance && typeof ma.curveProvenance === 'object') && Object.keys(curveParamsOf(ma)).every(n => ARCHETYPES[n]);
+  const provenanceOf = ma => ((ma && ma.curveProvenance && typeof ma.curveProvenance === 'object' && !Array.isArray(ma.curveProvenance)) ? ma.curveProvenance : {});
+  const blankArch = a => a === undefined || a === null || a === '';
+
+  // Resolve per-archetype preset assignments into engine curve inputs (pure; I-3).
+  //   assignment: { [archetypeId | 'ALL']: presetId | 'custom' } (unassigned archetypes are absent or blank)
+  //   presets:    [ { id, label, delta, gamma, rho, ... } ]      custom: { [archetypeId]: { delta?, gamma, rho } }
+  // Returns { curveParams, provenance, issues }. A Custom entry is passed through as entered (delta defaults to 5) even when
+  // invalid, so validate() reports it against the archetype; an unknown preset id is left out of curveParams.
+  const CUSTOM_ID = 'custom';
+  function resolveCurves(assignment, presets, custom) {
+    const asg = assignment && typeof assignment === 'object' && !Array.isArray(assignment) ? assignment : {};
+    const list = Array.isArray(presets) ? presets : [];
+    const cus = custom && typeof custom === 'object' && !Array.isArray(custom) ? custom : {};
+    const curveParams = {}, provenance = {}, issues = [];
+    Object.keys(asg).forEach(id => {
+      const a = asg[id];
+      if (blankArch(a)) return;
+      if (a === CUSTOM_ID) {
+        const c = cus[id] && typeof cus[id] === 'object' ? cus[id] : {};
+        const delta = c.delta === undefined || c.delta === null ? DEFAULT_DELTA : c.delta;
+        const gamma = c.gamma === undefined ? null : c.gamma, rho = c.rho === undefined ? null : c.rho;
+        curveParams[id] = { delta, gamma, rho };
+        provenance[id] = { source: 'custom', presetId: null, label: null };
+        [['delta', delta], ['gamma', gamma], ['rho', rho]].forEach(([k, x]) => {
+          if (!isNum(x) || x <= 0) issues.push({ code: 'custom-curve-invalid', path: `responseCurve.custom.${id}.${k}`,
+            message: `${id}: custom curve ${EXTRA_LABELS[k]} must be a number above 0.` });
+        });
+        return;
+      }
+      const p = list.find(x => x && x.id === a);
+      if (!p) { issues.push({ code: 'unknown-preset', path: `responseCurve.assignment.${id}`, message: `${id}: uptake preset "${a}" is not in the configuration.` }); return; }
+      curveParams[id] = { delta: p.delta, gamma: p.gamma, rho: p.rho };
+      provenance[id] = { source: 'preset', presetId: p.id, label: p.label === undefined ? null : p.label };
+    });
+    return { curveParams, provenance, issues };
   }
   const curveParamsEdited = ma => { const a = archetypesFor(ma); return ARCH_NAMES.filter(n => a[n].gamma !== ARCHETYPES[n].gamma || a[n].rho !== ARCHETYPES[n].rho); };
 
@@ -859,6 +1101,8 @@ abbr[title] { text-decoration: none; cursor: help; }
   const optLabel = (group, key) => (FL && FL.OPTION_LABELS && FL.OPTION_LABELS[group] && FL.OPTION_LABELS[group][key]) || String(key);
   const optChoices = group => (FL && FL.OPTION_LABELS && FL.OPTION_LABELS[group] ? Object.values(FL.OPTION_LABELS[group]).map(l => `"${l}"`).join(' or ') : '');
   const bindLabel = key => (FL && FL.BINDING_LABELS && FL.BINDING_LABELS[key]) || String(key);
+  const provenanceWithoutCurve = n => (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.provenanceWithoutCurve === 'function'
+    ? FL.RESPONSE_CURVE_LABELS.provenanceWithoutCurve(n) : `${n}: the curve source has no curve values.`);
   const EXTRA_LABELS = { capacity: 'Effective annual capacity', capacityInput: 'Capacity input', callsPerDay: 'Calls per day', workingDays: 'Working days',
     repCost: 'Annual rep cost', costMode: 'Cost mode', costPerCallMethod: 'Cost per call method', fteRounding: 'FTE rounding', inflationPct: 'Cost inflation %',
     discountRatePct: 'Discount rate %', layers: 'Management layers', windowYears: 'Sizing window (years)', annualValue: 'Annual impactable value',
@@ -870,13 +1114,15 @@ abbr[title] { text-decoration: none; cursor: help; }
     impactablePct: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.impactablePct) || 'Salesforce-impactable %',
     sfPct: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.sfPct) || 'Salesforce-impactable %', forecastMode: 'Forecast inputs',
     reallocateExcluded: (FL && FL.ASSUMPTION_LABELS && FL.ASSUMPTION_LABELS.reallocateExcluded) || 'Reallocate value from excluded segments',
-    specialty: 'Specialty', decile: 'Decile', curveParams: 'Response curve parameters', gamma: 'Curve shape (gamma)', rho: 'Curve saturation (rho)' };
+    specialty: 'Specialty', decile: 'Decile', curveParams: 'Response curve parameters', gamma: 'Curve shape (gamma)', rho: 'Curve saturation (rho)',
+    delta: 'Curve scale (delta)', curveProvenance: 'Response curve source', customSourceNote: 'Custom curve source note' };
   function fieldLabel(path, grain) {
     const ids = String(path || '').replace(/\[[^\]]*\]/g, '').split('.').filter(Boolean);
     const g = FL && FL.GRAIN && FL.GRAIN[grain] ? grain : 'hcp';
     for (let i = ids.length - 1; i >= 0; i--) {
       const id = ids[i];
       if (FL && FL.OPTION_LABELS && ARCHETYPES[id]) continue;
+      if (i > 0 && (ids[i - 1] === 'curveParams' || ids[i - 1] === 'archetypeMix' || ids[i - 1] === 'curveProvenance')) continue;   // archetype id, not a field
       const sf = FL && FL.SEGMENT_FIELDS && FL.SEGMENT_FIELDS.find(f => f.id === id);
       if (sf && !(ids[0] === 'entities' && id === 'segment')) return sf.label(g);
       const mf = FL && FL.MAPPING_FIELDS && ids[0] === 'entities' && FL.MAPPING_FIELDS.find(f => f.id === id || (id === 'id' && f.id === 'entityId'));
@@ -1131,7 +1377,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       const checkSumPct = F ? (sfEntered !== null ? sfEntered : impliedSfPct) + otherPctEff + carryoverSharePct : null;
       const floored = mode === 'carryover+other' && F - other - carry < -amountTol(F);
       if (mode === 'carryover+other' && F) {
-        // 2026-10-12 review (Kunal): only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
+        // 2026-10-12 SME review: only the first year must reconcile to 100%. From year 2 on, Salesforce impact keeps
         // carrying over (diminishing) from earlier cohorts, so an entered Salesforce-impactable % is not expected to add up.
         if (i === 0 && Math.abs(checkSumPct - 100) > CHECK_TOL_PTS + 1e-9 && !(floored && sfEntered === null))
           warns.push({ code: 'shares-not-100', path: yPath(y, 'sfPct'),
@@ -1348,15 +1594,52 @@ abbr[title] { text-decoration: none; cursor: help; }
         E.add('cutoff-invalid', 'methodAssumptions.cutoff', 'Cutoff must be above 0 (gross ratio) or above -1 (net ROI).');
       if (!RULES.includes(o.stoppingRule)) E.add('stopping-rule-invalid', 'methodAssumptions.stoppingRule', `Stopping rule must be ${optChoices('stoppingRule')}.`);
       if (!isInt(o.scenarioMaxCalls) || o.scenarioMaxCalls <= 0) E.add('scenario-max-invalid', 'methodAssumptions.scenarioMaxCalls', 'Normalization point must be a whole number of calls above zero.');
-      if (ma.curveParams !== undefined && ma.curveParams !== null) {
+      const prov = provenanceOf(ma);
+      if (ma.curveParams !== undefined && ma.curveParams !== null && !Array.isArray(ma.curveParams)) {   // I-3 A2: an array is {} (1.11.0 rule)
         if (typeof ma.curveParams !== 'object') E.add('curve-params-invalid', 'methodAssumptions.curveParams', 'Response curve parameters must be given per curve archetype.');
         else Object.keys(ma.curveParams).forEach(n => {
-          const u = ma.curveParams[n] || {};
-          if (!ARCHETYPES[n]) { E.add('archetype-unknown', `methodAssumptions.curveParams.${n}`, `Unknown curve archetype "${n}"; expected one of ${ARCH_NAMES.join(', ')}.`); return; }
+          const u = ma.curveParams[n] && typeof ma.curveParams[n] === 'object' ? ma.curveParams[n] : {};
+          const pv = prov[n] && typeof prov[n] === 'object' ? prov[n] : null;
+          if (pv || !ARCHETYPES[n]) {
+            // 1.11.0 / I-3 A1: entries with provenance (any name) and non-reference archetypes carry their own curve.
+            // gamma and rho are required, delta optional (5); every given value must be a number above 0, no upper bound.
+            // Codes: custom provenance or no provenance -> custom-curve-invalid; preset provenance -> the per-parameter codes.
+            const preset = pv && pv.source === 'preset';
+            const codeFor = k => (!preset ? 'custom-curve-invalid' : k === 'gamma' ? 'curve-gamma-invalid' : k === 'rho' ? 'curve-rho-invalid' : 'curve-params-invalid');
+            ['delta', 'gamma', 'rho'].forEach(k => {
+              const x = u[k];
+              if (k === 'delta' && (x === undefined || x === null)) return;
+              if (!isNum(x) || x <= 0) E.add(codeFor(k), `methodAssumptions.curveParams.${n}.${k}`, `${n}: ${EXTRA_LABELS[k]} must be a number above 0.`);
+            });
+            return;
+          }
           if (u.gamma !== undefined && u.gamma !== null && (!isNum(u.gamma) || u.gamma <= 0 || u.gamma > 10)) E.add('curve-gamma-invalid', `methodAssumptions.curveParams.${n}.gamma`, `${n}: shape (gamma) must be above 0 and at most 10.`);
           if (u.rho !== undefined && u.rho !== null && (!isNum(u.rho) || u.rho <= 0 || u.rho > 10000)) E.add('curve-rho-invalid', `methodAssumptions.curveParams.${n}.rho`, `${n}: saturation (rho) must be above 0 and at most 10,000.`);
         });
       }
+      if (ma.curveProvenance !== undefined && ma.curveProvenance !== null) {
+        if (typeof ma.curveProvenance !== 'object' || Array.isArray(ma.curveProvenance)) E.add('curve-params-invalid', 'methodAssumptions.curveProvenance', 'Response curve sources must be given per curve archetype.');
+        else Object.keys(ma.curveProvenance).forEach(n => {
+          const pv = ma.curveProvenance[n];
+          if (!pv || typeof pv !== 'object' || (pv.source !== 'preset' && pv.source !== 'custom'))
+            E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, `${n}: the curve source must be a preset or a custom curve.`);
+          // P7 (P1-m3): a source with no curveParams entry would label reference defaults (or nothing) with a preset or
+          // Custom; resolveCurves never produces it, so it is refused rather than computed.
+          else if (!Object.prototype.hasOwnProperty.call(curveParamsOf(ma), n))
+            E.add('curve-params-invalid', `methodAssumptions.curveProvenance.${n}`, provenanceWithoutCurve(n));
+        });
+      }
+      const note = ma.customSourceNote;
+      const noteBlank = typeof note !== 'string' || note.trim() === '';
+      if (Object.keys(prov).some(n => prov[n] && prov[n].source === 'custom') && noteBlank)
+        E.add('custom-source-missing', 'methodAssumptions.customSourceNote', 'A custom response curve needs a source note (for example, the marketing mix study it comes from).');
+      else if (note !== undefined && note !== null && typeof note !== 'string')
+        E.add('custom-source-missing', 'methodAssumptions.customSourceNote', `${EXTRA_LABELS.customSourceNote} must be text.`);
+      // Data archetypes resolve against archetypesFor(ma): the reference set plus every curveParams key (I-3).
+      const AR = archetypesFor(ma);
+      const known = a => Object.prototype.hasOwnProperty.call(AR, a);
+      const hasAll = known(ALL_ID);
+      const archList = () => Object.keys(AR).join(', ');
       const ents = inputs.entities;
       if (Array.isArray(ents) && ents.length > 0) {
         const ids = new Set();
@@ -1367,7 +1650,8 @@ abbr[title] { text-decoration: none; cursor: help; }
           if (ids.has(String(e.id))) E.add('entity-duplicate', `${p}.id`, `Entity ID ${e.id} appears more than once.`);
           ids.add(String(e.id));
           if (!seen.has(String(e.segment))) E.add('entity-segment-unknown', `${p}.segment`, `Entity ${e.id} belongs to segment "${e.segment}", which has no segment row.`);
-          if (!ARCHETYPES[e.archetype]) E.add('archetype-unknown', `${p}.archetype`, `Entity ${e.id} has curve archetype "${e.archetype}"; expected one of ${ARCH_NAMES.join(', ')}.`);
+          if (blankArch(e.archetype)) { if (!hasAll) E.add('response-needs-entity-or-mix', `${p}.archetype`, `Entity ${e.id} has no curve archetype, and no "${ALL_ID}" curve is given for value-only rows.`); }
+          else if (!known(e.archetype)) E.add('unknown-archetype', `${p}.archetype`, `Entity ${e.id} has curve archetype "${e.archetype}"; expected one of ${archList()}.`);
           if (e.value === null || e.value === undefined) missingVal++;
           else if (!isNum(e.value) || e.value < 0) E.add('entity-value-invalid', `${p}.value`, `Entity ${e.id} value must be a number of zero or more.`);
         });
@@ -1377,14 +1661,14 @@ abbr[title] { text-decoration: none; cursor: help; }
         segs.forEach((s, i) => {
           if (s && s.archetypeMix && s.archetype !== undefined && s.archetype !== null && s.archetype !== '')
             W.add('archetype-and-mix', `segments[${i}]`, `Segment ${s.segment} has both a single archetype and an archetype mix; the mix is used.`);
-          if (s && !s.archetypeMix && s.archetype !== undefined && s.archetype !== null && s.archetype !== '' && !ARCHETYPES[s.archetype]) {
-            E.add('archetype-unknown', `segments[${i}].archetype`, `Unknown curve archetype "${s.archetype}"; expected one of ${ARCH_NAMES.join(', ')}.`); return;
+          if (s && !s.archetypeMix && s.archetype !== undefined && s.archetype !== null && s.archetype !== '' && !known(s.archetype)) {
+            E.add('unknown-archetype', `segments[${i}].archetype`, `Unknown curve archetype "${s.archetype}"; expected one of ${archList()}.`); return;
           }
-          const mix = effectiveMix(s);
+          const mix = mixFor(s, hasAll);
           if (!mix) { allMix = false; return; }
           let tot = 0;
           Object.keys(mix).forEach(k => {
-            if (!ARCHETYPES[k]) E.add('archetype-unknown', `segments[${i}].archetypeMix.${k}`, `Unknown curve archetype "${k}".`);
+            if (!known(k)) E.add('unknown-archetype', `segments[${i}].archetypeMix.${k}`, `Unknown curve archetype "${k}"; expected one of ${archList()}.`);
             else if (!isNum(mix[k]) || mix[k] < 0) E.add('archetype-mix-invalid', `segments[${i}].archetypeMix.${k}`, 'Archetype mix % must be zero or more.');
             else tot += mix[k];
           });
@@ -1404,6 +1688,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (s && s.archetypeMix) return s.archetypeMix;
     if (s && s.archetype !== undefined && s.archetype !== null && s.archetype !== '') { const m = {}; m[s.archetype] = 100; return m; }
     return null;
+  }
+  // 1.11.0 (D3): a segment with no archetype or mix uses the value-only 'ALL' curve when one is given.
+  function mixFor(s, hasAll) {
+    const m = effectiveMix(s);
+    if (m || !hasAll) return m;
+    const a = {}; a[ALL_ID] = 100; return a;
   }
 
   // ---------- allocation of the value pool to segments (Spec §2.4) ----------
@@ -1437,7 +1727,7 @@ abbr[title] { text-decoration: none; cursor: help; }
                 entitiesPerRep: null, costPerCall: null, fieldCost: null, contribution: null, roi: null, poolValue: null, coveredValue: null,
                 minCalls: null, maxCalls: null, targetsPerRep: null },
       rollups: { bySpecialty: [], byDecile: [] },
-      planningAllocation: [], drivers: [], trace: [], entityResults: null
+      planningAllocation: [], drivers: [], trace: [], entityResults: null, curves: null
     };
   }
 
@@ -1613,20 +1903,44 @@ abbr[title] { text-decoration: none; cursor: help; }
     const cpc = cost.effective, cap = sh.capacity;
     const X = o.scenarioMaxCalls;
     const AR = archetypesFor(ma), edited = curveParamsEdited(ma);
+    const segs = inputs.segments;
+    const ents = Array.isArray(inputs.entities) && inputs.entities.length > 0 ? inputs.entities : null;
+    const hasAll = Object.prototype.hasOwnProperty.call(AR, ALL_ID);
+    const archOf = e => (blankArch(e.archetype) ? ALL_ID : e.archetype);     // value-only entity rows use the ALL curve (D3)
+    // Archetypes used by the data, reference order first (float-exact 1.10.0 sums), then first-seen data order (I-3).
+    const seenArch = [];
+    const see = a => { if (!seenArch.includes(a)) seenArch.push(a); };
+    if (ents) ents.forEach(e => see(archOf(e)));
+    else segs.forEach(sg => { const m = mixFor(sg, hasAll) || {}; Object.keys(m).forEach(k => { if (isNum(m[k]) && m[k] > 0) see(k); }); });
+    const used = ARCH_NAMES.filter(n => seenArch.includes(n)).concat(seenArch.filter(n => !ARCHETYPES[n]));
+    const loopArch = ARCH_NAMES.concat(seenArch.filter(n => !ARCHETYPES[n]));   // summary path: every reference archetype, then the others
+    const legacy = legacyCurves(ma), prov = provenanceOf(ma);
     const denoms = {};
-    ARCH_NAMES.forEach(n => { denoms[n] = responseCurve(AR[n], X); });
+    Object.keys(AR).forEach(n => { denoms[n] = responseCurve(AR[n], X); });
     trace.push(step('Response curve', 'Response(x) = (delta x x)^gamma / (x^gamma + rho); normalized = Response(x) / Response(' + X + ')', null, 'Spec §4.1'));
-    trace.push(step('Curve parameters', edited.length ? `edited for ${edited.join(', ')}; ${ARCH_NAMES.map(n => `${n} gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ')}` : 'reference defaults (decision 9) for every archetype', edited.length, 'Response curve inputs (2026-10-12)'));
-    ARCH_NAMES.forEach(n => trace.push(step(`Normalization denominator, ${n}`,
+    if (legacy) trace.push(step('Curve parameters', edited.length ? `edited for ${edited.join(', ')}; ${ARCH_NAMES.map(n => `${n} gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ')}` : 'reference defaults (decision 9) for every archetype', edited.length, 'Response curve inputs (2026-10-12)'));
+    else {
+      const customLbl = (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.custom === 'string' && FL.RESPONSE_CURVE_LABELS.custom) || 'Custom';
+      const srcText = n => { const pv = prov[n]; if (!pv) return ARCHETYPES[n] ? 'reference default' : 'entered'; return pv.source === 'custom' ? customLbl : `preset ${pv.label || pv.presetId}`; };
+      const note = typeof ma.customSourceNote === 'string' && ma.customSourceNote.trim() ? `; custom source note: ${ma.customSourceNote.trim()}` : '';
+      const allLbl = (FL && FL.RESPONSE_CURVE_LABELS && typeof FL.RESPONSE_CURVE_LABELS.all === 'string' && FL.RESPONSE_CURVE_LABELS.all) || 'All HCPs';
+      trace.push(step('Curve parameters', used.map(n => `${n === ALL_ID ? allLbl : n}: ${srcText(n)}, delta ${fmt(AR[n].delta)}, gamma ${fmt(AR[n].gamma)}, rho ${fmt(AR[n].rho)}`).join('; ') + note,
+        used.length, 'Response curve presets (fs-engine 1.11.0)'));
+    }
+    (legacy ? ARCH_NAMES : used).forEach(n => trace.push(step(`Normalization denominator, ${n}`,
       `(${AR[n].delta} x ${X})^${AR[n].gamma} / (${X}^${AR[n].gamma} + ${AR[n].rho}) = ${fmt(denoms[n])}`, denoms[n], 'Spec §4.2')));
+    const curves = {};
+    used.forEach(n => {
+      const pv = prov[n] || null;
+      curves[n] = { delta: AR[n].delta, gamma: AR[n].gamma, rho: AR[n].rho, source: pv ? pv.source : null,
+        presetId: pv && pv.presetId !== undefined ? pv.presetId : null, label: pv && pv.label !== undefined ? pv.label : null };
+    });
     const eq = roiEquivalent(o.roiBasis, o.cutoff);
     trace.push(step('Marginal ROI test', `${optLabel('roiBasis', o.roiBasis)}: ${o.roiBasis === 'gross' ? 'incremental contribution / incremental cost' : '(incremental contribution - incremental cost) / incremental cost'} ${o.cutoffTie === 'exclude' ? '>' : '>='} ${fmt(o.cutoff)} (gross ratio ${fmt(eq.gross)}, net ROI ${fmt(eq.net)})`, o.cutoff, 'Decision 4 / PE-03'));
     trace.push(step('Stopping rule', optLabel('stoppingRule', o.stoppingRule), null, 'Decision 5'));
     trace.push(step('Response options', `${optLabel('minimumBoundary', o.minimumBoundary)}; ${optLabel('cutoffTie', o.cutoffTie)}; ${optLabel('reachAppliesTo', o.reachAppliesTo)}`, null, 'Contract v1.3 options'));
-    const segs = inputs.segments;
     const segIndex = new Map(segs.map((s, i) => [String(s.segment), i]));
     const acc = segs.map(s => ({ entities: 0, accessible: 0, reached: 0, calls: 0, contribution: 0, alloc: 0, bind: {}, reasons: {} }));
-    const ents = Array.isArray(inputs.entities) && inputs.entities.length > 0 ? inputs.entities : null;
     let entityResults = null;
     const tally = (a, key, w) => { a[key] = (a[key] || 0) + w; };
     if (ents) {
@@ -1648,7 +1962,8 @@ abbr[title] { text-decoration: none; cursor: help; }
         else K = totE > 0 ? iv.pool * (v / totE) : 0;            // proportional to entity value (only allocation since 2026-10-12)
         const eCap = o.maxCallsSource === 'entityAttribute' && e.attrs && isInt(e.attrs.maxCalls) ? e.attrs.maxCalls : s.maxCalls;
         if (eCap !== s.maxCalls) capOverrides++;
-        const r = selectCalls(K, AR[e.archetype], denoms[e.archetype], cpc, o, eCap, s.minCalls);
+        const ea = archOf(e);
+        const r = selectCalls(K, AR[ea], denoms[ea], cpc, o, eCap, s.minCalls);
         const reach = s.reachPct / 100;
         const reachedWeight = r.calls > 0 ? reach : 0;
         const a = acc[i];
@@ -1660,7 +1975,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       trace.push(step('Maximum calls source', o.maxCallsSource === 'entityAttribute' ? `${optLabel('maxCallsSource', o.maxCallsSource)}, else the segment maximum (${capOverrides} entities use their own cap); normalization point stays ${X} calls` : optLabel('maxCallsSource', o.maxCallsSource), capOverrides, 'Response option'));
     } else {
       trace.push(upstreamStep(segs, true));
-      trace.push(step('Curve archetypes supplied', segs.map(sg => `segment ${sg.segment}: ${Object.entries(effectiveMix(sg) || {}).filter(([, m]) => m > 0).map(([a, m]) => `${a} ${fmt(m)}%`).join(', ')}`).join('; '), null, 'Upstream input'));
+      trace.push(step('Curve archetypes supplied', segs.map(sg => `segment ${sg.segment}: ${Object.entries(mixFor(sg, hasAll) || {}).filter(([, m]) => m > 0).map(([a, m]) => `${a} ${fmt(m)}%`).join(', ')}`).join('; '), null, 'Upstream input'));
       const shares = allocShares(segs, o.allocation, segs.map(s => (isNum(s.compositeValue) ? s.compositeValue : 0)), restrict);
       trace.push(step('Allocation', `${optLabel('allocation', o.allocation)}: segment value = pool ${fmt(iv.pool)} x share; split into one group per archetype by mix${restrictNote(restrict, segs.length)}`, null, 'Decision 7 (approximation)'));
       segs.forEach((s, i) => {
@@ -1668,8 +1983,8 @@ abbr[title] { text-decoration: none; cursor: help; }
         const reach = s.reachPct / 100;
         const a = acc[i];
         a.entities = s.entities; a.accessible = s.entities * reach; a.alloc = segAlloc;
-        ARCH_NAMES.forEach(name => {
-          const mixE = effectiveMix(s);
+        loopArch.forEach(name => {
+          const mixE = mixFor(s, hasAll);
           const m = (mixE && isNum(mixE[name]) ? mixE[name] : 0) / 100;
           if (m <= 0 || s.entities <= 0) return;
           const n = s.entities * m;
@@ -1716,7 +2031,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       { label: 'Value pool', value: iv.pool, effect: poolEffect(iv.calibrationFactor) },
       { label: 'Normalization point (calls)', value: X, effect: 'Response curves are scaled so contribution at this call count equals allocated value' }
     ];
-    return { rows, totals, drivers, entityResults };
+    return { rows, totals, drivers, entityResults, curves };
   }
 
   // ---------- Workload Buildup (Spec §5) ----------
@@ -1891,12 +2206,12 @@ abbr[title] { text-decoration: none; cursor: help; }
       errors: [], warnings,
       segments: out.rows, totals: out.totals, rollups: rollups(out.rows, out.totals.costPerCall),
       planningAllocation: planningAllocation(out.rows.map(r => r.rawFte), out.totals.recommendedFte),
-      drivers: out.drivers, trace, entityResults: out.entityResults || null
+      drivers: out.drivers, trace, entityResults: out.entityResults || null, curves: out.curves || null
     };
   }
 
   const FSEngine = Object.freeze({
-    version: VERSION, ARCHETYPES, archetypesFor,
+    version: VERSION, ARCHETYPES, archetypesFor, resolveCurves,
     validate, calculate, resolveCapacity, costPerCall, impactableValue, planningAllocation, roiEquivalent,
     _internal: Object.freeze({ responseCurve, selectCalls, stableStringify, fnv1a })
   });
@@ -2440,9 +2755,21 @@ abbr[title] { text-decoration: none; cursor: help; }
     return String(s === null || s === undefined ? '' : s).toLowerCase()
       .replace(/[_\-\/.:()#\[\]]+/g, ' ').replace(/\s*%/g, ' %').replace(/\s+/g, ' ').trim();
   }
+  /* Archetypes the importer recognises: the four reference names plus every configuration archetype the mapping fields
+     list (FSFields.MAPPING_FIELDS archetypeMix.*). Reference-only files import exactly as before. */
+  let LIVE_ARCH = null;   // the page's live configuration archetypes, for the duration of one detect / applyMapping call
+  function withArchetypes(list, fn) {
+    const prev = LIVE_ARCH;
+    LIVE_ARCH = Array.isArray(list) ? list.filter(a => typeof a === 'string' && a.trim()) : null;
+    try { return fn(); } finally { LIVE_ARCH = prev; }
+  }
+  function importArch() {
+    const extra = mappingFields(fields()).map(f => f.id).filter(id => id.startsWith('archetypeMix.')).map(id => id.slice(13)).concat(LIVE_ARCH || []);
+    return ARCH.concat(extra.filter((a, i) => !ARCH.includes(a) && extra.indexOf(a) === i));
+  }
   function archetypeName(v) {
     const n = norm(v).replace(/ %$/, '').replace(/\s+/g, '');
-    for (const a of ARCH) { const l = a.toLowerCase(); if (n === l || n === l.slice(0, -1)) return a; }
+    for (const a of importArch()) { const l = a.toLowerCase().replace(/\s+/g, ''); if (n === l || n === l.slice(0, -1)) return a; }
     return null;
   }
   const NEG_TOKENS = /\b(max|maximum|min|minimum|mix|share)\b/;
@@ -2501,7 +2828,12 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* detect(sheet, method, workbook?) — workbook ({sheets} or an array of sheets) is optional. When given, and two or more
      visible sheets (this one included) share this sheet's data header shape, the result carries
      tabsAsSpecialties: [sheet names] (CS-3 "one tab per specialty"). Without a workbook the result is as before. */
+  /* workbook.archetypes / extra.archetypes (optional): archetype names from the live configuration, recognised on import in
+     addition to the reference and seed configuration archetypes. */
   function detect(sheet, method, workbook) {
+    return withArchetypes(workbook && !Array.isArray(workbook) ? workbook.archetypes : null, () => detectWith(sheet, method, workbook));
+  }
+  function detectWith(sheet, method, workbook) {
     const d = detectOne(sheet, method);
     const list = workbook && (Array.isArray(workbook) ? workbook : workbook.sheets);
     if (Array.isArray(list) && list.length > 1 && !('specialty' in d.mapping) && isNum(d.mapping.segment)) {
@@ -2626,6 +2958,9 @@ abbr[title] { text-decoration: none; cursor: help; }
      { segment: "<specialty> · <decile>", specialty, decile, ... }, and entity rows carry the same composed segment key.
      With no specialty the result is exactly as before (no specialty/decile keys). */
   function applyMapping(sheet, opts, method, extra) {
+    return withArchetypes((extra && extra.archetypes) || (opts && opts.archetypes), () => applyMappingWith(sheet, opts, method, extra));
+  }
+  function applyMappingWith(sheet, opts, method, extra) {
     const F = fields();
     const rows = (sheet && sheet.rows) || [];
     const o = opts || {};
@@ -2786,7 +3121,7 @@ abbr[title] { text-decoration: none; cursor: help; }
         if (has('archetype')) {
           const raw = get(d.row, 'archetype');
           archetype = archetypeName(raw);
-          if (!archetype && method === 'response') { err('unknown-archetype', `${RP(d)}.archetype`, `${RW(d)}: Curve archetype "${cellStr(raw)}" is not one of ${ARCH.join(', ')}.`); ok = false; }
+          if (!archetype && method === 'response') { err('unknown-archetype', `${RP(d)}.archetype`, `${RW(d)}: Curve archetype "${cellStr(raw)}" is not one of ${importArch().join(', ')}.`); ok = false; }
           if (!archetype && raw !== null && raw !== undefined && method !== 'response') archetype = cellStr(raw);
         }
         const reach = has('reachPct') ? readReach(d) : null;
@@ -2847,13 +3182,13 @@ abbr[title] { text-decoration: none; cursor: help; }
           if (!same) warn('planned-calls-vary-in-segment', `segments.${k}.plannedCalls`, `Segment ${k}: planned calls differ between entities; the average (${Math.round(s.plannedCalls * 100) / 100}) is used and must be a whole number before calculating.`);
         }
         const archTotal = Object.keys(a.arch).reduce((t, x) => t + a.arch[x], 0);
-        if (archTotal > 0) { s.archetypeMix = {}; ARCH.forEach(x => { s.archetypeMix[x] = 100 * (a.arch[x] || 0) / archTotal; }); }
+        if (archTotal > 0) { s.archetypeMix = {}; (Object.keys(a.arch).every(x => ARCH.includes(x)) ? ARCH : Object.keys(a.arch)).forEach(x => { s.archetypeMix[x] = 100 * (a.arch[x] || 0) / archTotal; }); }
         return s;
       });
       if (!has('reachPct')) warn('reach-not-supplied', 'reachPct', 'No reach column was mapped; enter Reach % for each segment before calculating.');
     } else {
       const seen = new Map();
-      const mixCols = ARCH.filter(a => isNum(mapping['archetypeMix.' + a]));
+      const mixCols = importArch().filter(a => isNum(mapping['archetypeMix.' + a]));
       dataRows.forEach(d => {
         if (isTotalRow(d)) { warn('total-row-excluded', `${RP(d)}`, `${RW(d)} looks like a total row ("${totalText(d)}") and was not imported.`); return; }
         rowCount++;
@@ -2880,12 +3215,12 @@ abbr[title] { text-decoration: none; cursor: help; }
             mix[a] = p.n === null ? 0 : p.n;
           });
           if (ok) {
-            const tot = ARCH.reduce((t, a) => t + (mix[a] || 0), 0);
+            const tot = Object.keys(mix).reduce((t, a) => t + (mix[a] || 0), 0);
             if (tot > 0 && tot <= 1.0000001 && !mixCols.some(a => /%/.test(String(d.row[mapping['archetypeMix.' + a]])))) {
-              ARCH.forEach(a => { if (a in mix) mix[a] = Math.round(mix[a] * 100 * 1e9) / 1e9; });
+              Object.keys(mix).forEach(a => { mix[a] = Math.round(mix[a] * 100 * 1e9) / 1e9; });
               warn('mix-fraction-converted', `${RP(d)}.archetypeMix`, `${RW(d)}: archetype mix looked like fractions and was converted to percent.`);
             }
-            ARCH.forEach(a => { if (!(a in mix)) mix[a] = 0; });
+            if (mixCols.every(a => ARCH.includes(a))) ARCH.forEach(a => { if (!(a in mix)) mix[a] = 0; });   // reference-only files as before
           }
         }
         if (!ok) return;
@@ -3402,6 +3737,139 @@ abbr[title] { text-decoration: none; cursor: help; }
     return sp && lab.indexOf(sp + SPEC_SEP) === 0 ? lab.slice(sp.length + SPEC_SEP.length) : lab;
   }
   const specOfRow = s => (s && s.specialty !== undefined && s.specialty !== null ? txt(s.specialty) : '');
+
+  /* fs-io 1.1.0 (FR-48, proposed): uptake presets. Reads only methodAssumptions.{curveParams, curveProvenance,
+     customSourceNote}, the scenario's responseCurveConfig (else args.config) and result.curves. A snapshot in the 1.10.0
+     shape (no provenance, reference archetype keys only; the engine's own legacy rule) adds nothing to the existing sheets,
+     so an old draft exports as fs-io 1.0.0 apart from the Configuration sheet, which then reads "No configuration recorded"
+     (D-RUN-09: the current configuration did not size it). Every label comes from FSFields. */
+  const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const rcLabels = F => F.RESPONSE_CURVE_LABELS || {};
+  const RC_ALL = F => (F.RESPONSE_CURVE_RESERVED && F.RESPONSE_CURVE_RESERVED.all) || 'ALL';
+  const RC_CUSTOM = F => (F.RESPONSE_CURVE_RESERVED && F.RESPONSE_CURVE_RESERVED.custom) || 'custom';
+  const rcArchName = (F, id) => (id === RC_ALL(F) && rcLabels(F).all ? rcLabels(F).all : txt(id));
+  function rcConfigOf(scenario, args) {
+    if (isObj(scenario && scenario.responseCurveConfig)) return scenario.responseCurveConfig;
+    return isObj(args && args.config) ? args.config : null;
+  }
+  function presetLabelOf(cfg, id) {
+    const p = cfg && Array.isArray(cfg.presets) ? cfg.presets.find(x => x && x.id === id) : null;
+    return p && p.label !== undefined && p.label !== null && String(p.label) !== '' ? txt(p.label) : txt(id);
+  }
+  // { rows: [{ id, name, delta, gamma, rho, source, presetId, uptake }], note, anyCustom } or null for a 1.10.0-shaped input
+  function curveRowsOf(c) {
+    const { F, ma, res, method } = c;
+    if (method !== 'response') return null;
+    const cp = isObj(ma.curveParams) ? ma.curveParams : {};
+    const keys = Object.keys(cp);
+    if (!isObj(ma.curveProvenance) && keys.every(k => ARCH.includes(k))) return null;
+    const L = rcLabels(F), SL = L.sourceLabel || {};
+    const prov = isObj(ma.curveProvenance) ? ma.curveProvenance : {};
+    const used = isObj(res && res.curves) ? res.curves : {};
+    const EN = G('FSEngine');
+    const eff = EN && EN.archetypesFor ? EN.archetypesFor(ma) : {};
+    const rows = keys.map(id => {
+      const pv = isObj(prov[id]) ? prov[id] : (isObj(used[id]) && used[id].source ? used[id] : null);
+      const e = isObj(eff[id]) ? eff[id] : (isObj(cp[id]) ? cp[id] : {});
+      const source = pv && (pv.source === 'preset' || pv.source === 'custom') ? pv.source : null;
+      const presetId = source === 'preset' && pv.presetId !== undefined && pv.presetId !== null ? txt(pv.presetId) : '';
+      const uptake = source === 'custom' ? txt(L.custom) : source === 'preset'
+        ? (pv.label !== undefined && pv.label !== null && String(pv.label) !== '' ? txt(pv.label) : presetLabelOf(c.cfg, presetId)) : '';
+      return { id, name: rcArchName(F, id), delta: num(e.delta), gamma: num(e.gamma), rho: num(e.rho), source, presetId, uptake,
+        sourceText: source ? txt(SL[source]) : '' };
+    });
+    const note = typeof ma.customSourceNote === 'string' ? ma.customSourceNote.trim() : '';
+    return { rows, note, anyCustom: rows.some(r => r.source === 'custom') };
+  }
+  /* FR-47 (proposed): the archetypes of a new-shape snapshot, in engine order: reference archetypes present first, then the
+     others in first-seen order (segment archetypeMix keys and archetypes, entity archetypes, then curveParams keys).
+     A 1.10.0-shaped snapshot keeps the fixed reference list, so its sheets stay exactly fs-io 1.0.0. */
+  function archListOf(c) {
+    if (!c.rcRows) return ARCH;
+    const seen = [];
+    const add = a => { if (a !== undefined && a !== null && String(a) !== '' && !seen.includes(String(a))) seen.push(String(a)); };
+    (c.inp.segments || []).forEach(s => { if (!s) return; if (isObj(s.archetypeMix)) Object.keys(s.archetypeMix).forEach(add); add(s.archetype); });
+    (Array.isArray(c.inp.entities) ? c.inp.entities : []).forEach(e => { if (e) add(e.archetype); });
+    c.rcRows.rows.forEach(r => add(r.id));
+    return ARCH.filter(a => seen.includes(a)).concat(seen.filter(a => !ARCH.includes(a)));
+  }
+  // F4: a segment's archetype mix; for new-shape value-only data (no mix, no archetype) with an 'ALL' curve it is 100% ALL,
+  // as in the engine. Old-shape snapshots keep the 1.0.0 rule.
+  function segMixOf(c, s) {
+    const m = s.archetypeMix || (s.archetype ? { [s.archetype]: 100 } : null);
+    if (m || !c.rcRows || !c.arch.includes(RC_ALL(c.F))) return m;
+    return { [RC_ALL(c.F)]: 100 };
+  }
+  function assignmentBlock(c, S) {
+    const R = c.rcRows;
+    if (!R) return;
+    const L = rcLabels(c.F), H = L.exportHeadings || {}, K = L.exportColumns || {};
+    S.skip();
+    S.line([txt(H.assignment)], ST.SECTION);
+    S.line([K.archetype, K.uptake, K.delta, K.gamma, K.rho, K.sourceNote].map(txt), ST.HDR);
+    R.rows.forEach(x => S.line([x.name, x.uptake, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM },
+      x.source === 'custom' ? R.note : '']));
+  }
+  function effectiveCurvesBlock(c, S) {
+    const R = c.rcRows;
+    if (!R) return;
+    const L = rcLabels(c.F), H = L.exportHeadings || {}, K = L.exportColumns || {};
+    S.skip();
+    S.line([txt(H.effectiveCurves)], ST.SECTION);
+    // P7 (P5-F5): parameter headings match the sheet's Archetype parameters table; a Custom row's Source names the
+    // marketing-mix analysis instead of repeating the Custom uptake label (new-shape snapshots only; R is null otherwise).
+    const CS = L.curveSheetColumns || {};
+    const srcOf = x => (x.source === 'custom' && L.exportCustomSource ? txt(L.exportCustomSource) : x.sourceText);
+    S.line([K.archetype, K.uptake, K.source, K.presetId, CS.delta || K.delta, CS.gamma || K.gamma, CS.rho || K.rho].map(txt), ST.HDR);
+    R.rows.forEach(x => S.line([x.name, x.uptake, srcOf(x), x.presetId, { v: x.delta, s: ST.NUM }, { v: x.gamma, s: ST.NUM }, { v: x.rho, s: ST.NUM }]));
+    if (R.anyCustom) S.line([txt(K.sourceNote), R.note]);
+  }
+  // New sheet (fs-io 1.1.0): the configuration snapshot a new-shape scenario was sized with (c.cfg is null for an old-shape one)
+  function buildConfiguration(c) {
+    const F = c.F, L = rcLabels(F), H = L.exportHeadings || {}, K = L.exportColumns || {};
+    const S = new SheetB(txt((L.exportSheets || {}).configuration));
+    const cfg = c.cfg;
+    S.line([txt(L.configuratorTitle)], ST.TITLE);
+    if (!cfg) { S.line([txt(L.noConfiguration)]); S.minW[0] = 24; return S; }
+    const onOff = v => txt((L.flagState || {})[String(v === true)]);
+    const never = txt(L.neverUpdated);
+    S.skip();
+    S.line([K.field, K.value].map(txt), ST.HDR);
+    S.line([txt(L.configVersion), isNum(cfg.version) ? cfg.version : txt(cfg.version)]);
+    S.line([txt(L.updatedBy), cfg.updatedBy ? txt(cfg.updatedBy) : never]);
+    S.line([txt(L.updatedAt), cfg.updatedAt ? fmtTime(cfg.updatedAt) : never]);
+    S.skip();
+    S.line([txt(H.presets)], ST.SECTION);
+    S.line([K.presetId, K.label, K.description, K.delta, K.gamma, K.rho, K.origin, K.pickerVisible].map(txt), ST.HDR);
+    (Array.isArray(cfg.presets) ? cfg.presets : []).forEach(p => {
+      if (!isObj(p)) return;
+      S.line([txt(p.id), txt(p.label), txt(p.description), { v: num(p.delta), s: ST.NUM }, { v: num(p.gamma), s: ST.NUM }, { v: num(p.rho), s: ST.NUM },
+        txt((L.origin || {})[p.origin] || p.origin), onOff(p.pickerVisible)]);
+    });
+    S.skip();
+    S.line([txt(H.curveLibrary)], ST.SECTION);
+    S.line([K.step, K.label, K.delta, K.gamma, K.rho].map(txt), ST.HDR);
+    (Array.isArray(cfg.curveLibrary) ? cfg.curveLibrary : []).forEach((p, i) => {
+      if (!isObj(p)) return;
+      S.line([{ v: i + 1, s: ST.INT }, txt(p.label), { v: num(p.delta), s: ST.NUM }, { v: num(p.gamma), s: ST.NUM }, { v: num(p.rho), s: ST.NUM }]);
+    });
+    S.skip();
+    S.line([txt(H.defaultAssignment)], ST.SECTION);
+    S.line([K.archetype, K.uptake, K.presetId].map(txt), ST.HDR);
+    const da = isObj(cfg.defaultAssignment) ? cfg.defaultAssignment : {};
+    Object.keys(da).forEach(a => {
+      const v = da[a];
+      S.line([rcArchName(F, a), v === RC_CUSTOM(F) ? txt(L.custom) : presetLabelOf(cfg, v), txt(v)]);
+    });
+    S.skip();
+    S.line([txt(H.flags)], ST.SECTION);
+    S.line([K.flag, K.value].map(txt), ST.HDR);
+    const fl = isObj(cfg.flags) ? cfg.flags : {};
+    Object.keys(fl).forEach(k => S.line([txt((L.flagLabels || {})[k] || k), onOff(fl[k])]));
+    S.minW[0] = 24; S.maxW[2] = 70;
+    return S;
+  }
+
   function buildAssumptions(c, scenario) {
     const { F, inp, method, g, ma, opts, sh } = c;
     const S = new SheetB(SHEETS.assumptions);
@@ -3670,13 +4138,14 @@ abbr[title] { text-decoration: none; cursor: help; }
     } else {
       pv(S.line(['Workload drivers', 'Per segment', 'Reach % and planned annual calls are on the segment rows below; capacity is above.']), 'See the segment rows below');
     }
+    assignmentBlock(c, S);   // fs-io 1.1.0: uptake per archetype (nothing for a 1.10.0-shaped snapshot)
     S.skip();
     S.line(['Segment inputs'], ST.SECTION);
     // specialty / decile are display keys written by this exporter (CS-3), never as fields.js segment columns
     const flds = F.segmentFieldsFor(method, opts.allocation, inp.inputGrain || 'summary').filter(f => f.id !== 'specialty' && f.id !== 'decile');
     const cols = [];
     flds.forEach(f => {
-      if (f.id === 'archetypeMix') ARCH.forEach(a => cols.push({ id: 'mix.' + a, label: `${a} %`, unit: 'mixpct' }));
+      if (f.id === 'archetypeMix') c.mixArch.forEach(a => cols.push({ id: 'mix.' + a, label: `${a} %`, unit: 'mixpct' }));
       else if (f.id === 'segment' && c.spec) cols.push({ id: 'specialty', label: SPEC_LABEL, unit: 'text' }, { id: 'decile', label: DECILE_LABEL, unit: 'text' });
       else cols.push({ id: f.id, label: f.label(g), unit: f.unit });
     });
@@ -3721,11 +4190,11 @@ abbr[title] { text-decoration: none; cursor: help; }
     const withValue = ma.reachAppliesTo === 'callsAndValue';
     const byStep = new Map((res.trace || []).map(t => [t.step, t.value]));
     const plan = segs.map((sg, i) => {
-      const s = inSeg(i), mix = s.archetypeMix || (s.archetype ? { [s.archetype]: 100 } : null);
+      const s = inSeg(i), mix = segMixOf(c, s);
       const ents = num(s.entities), reach = isNum(s.reachPct) ? s.reachPct / 100 : 0;
       const K = ents > 0 && isNum(sg.allocatedValue) ? sg.allocatedValue / ents : 0;
       const groups = [];
-      ARCH.forEach(a => {
+      c.arch.forEach(a => {
         const calls = byStep.get(`Segment ${sg.segment}, ${a}`);
         if (calls === undefined) return;
         const m = mix && isNum(mix[a]) ? mix[a] / 100 : 0;
@@ -3750,7 +4219,7 @@ abbr[title] { text-decoration: none; cursor: help; }
         const r = S.r, R = n => `${n}${r + 1}`, q = P[x.a].r + 1;
         const ak = A.segRows.findIndex(y => y.segment === String(segs[i].segment));
         const mixRef = x.fromMix && A.segCols['mix.' + x.a] !== undefined && ak >= 0 ? A.sheet.ref(A.segRows[ak].row, A.segCols['mix.' + x.a]) : null;
-        S.line((c.spec ? [k.rowSpec(i), k.rowDec(i)] : [txt(segs[i].segment)]).concat([x.a, { v: x.m, s: ST.PCT, f: mixRef },
+        S.line((c.spec ? [k.rowSpec(i), k.rowDec(i)] : [txt(segs[i].segment)]).concat([rcArchName(F, x.a), { v: x.m, s: ST.PCT, f: mixRef },
           { v: x.n, s: ST.NUM, f: `${L(mr, 'entities')}*${R(CL('C'))}` },
           { v: x.calls, s: ST.ENG_INT },
           { v: x.reached, s: ST.NUM, f: `IF(${R(CL('E'))}>0,${R(CL('D'))}*${L(mr, 'reach')},0)` },
@@ -4186,25 +4655,26 @@ abbr[title] { text-decoration: none; cursor: help; }
     S.line(['Response Curves'], ST.TITLE);
     S.line(['Response(x) = (δ·x)^γ ÷ (x^γ + ρ); normalized response = Response(x) ÷ Response(X), where X is the normalization point.'], ST.NOTE);
     S.skip();
-    if (!arch) { S.line(['Archetype parameters were not available to the exporter (sizing engine not loaded).']); S.curveRows = null; return S; }
+    if (!arch) { S.line(['Archetype parameters were not available to the exporter (sizing engine not loaded).']); effectiveCurvesBlock(c, S); S.curveRows = null; return S; }
     const X = c.opts.scenarioMaxCalls;
     S.line(['Archetype parameters'], ST.SECTION);
     S.line(['Curve archetype', 'δ (delta)', 'γ (gamma)', 'ρ (rho)', 'Response at X'], ST.HDR);
     const P = {};
-    ARCH.forEach(a => {
+    c.arch.forEach(a => {
       const p = arch[a]; if (!p) return;
       const r = S.r;
       const xr = A.xnorm || String(X);
-      S.line([a, { v: p.delta, s: ST.NUM }, { v: p.gamma, s: ST.NUM }, { v: p.rho, s: ST.NUM },
+      S.line([rcArchName(F, a), { v: p.delta, s: ST.NUM }, { v: p.gamma, s: ST.NUM }, { v: p.rho, s: ST.NUM },
         { v: responseCurve(p, X), s: ST.CURVE, f: `(B${r + 1}*${xr})^C${r + 1}/(${xr}^C${r + 1}+D${r + 1})` }]);
       P[a] = { r, p };
     });
+    effectiveCurvesBlock(c, S);   // fs-io 1.1.0: every archetype in curveParams with its provenance (nothing for a 1.10.0-shaped snapshot)
     S.skip();
     const maxSeg = Math.max(0, ...(inp.segments || []).map(s => (isNum(s.maxCalls) ? s.maxCalls : 0)));
     const top = Math.min(200, Math.max(X, maxSeg));
     S.line([`Normalized response by call count (0 to ${top})`], ST.SECTION);
-    const names = ARCH.filter(a => P[a]);
-    const hr = S.line(['Calls'].concat(names), ST.HDR);
+    const names = c.arch.filter(a => P[a]);
+    const hr = S.line(['Calls'].concat(names.map(a => rcArchName(F, a))), ST.HDR);
     S.freeze = 0;
     for (let x = 0; x <= top; x++) {
       const r = S.r;
@@ -4222,8 +4692,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (mixSegs.length) {
       S.skip();
       S.line([inp.inputGrain === 'entity' ? 'Archetype mix by segment (from entity rows, for information)' : 'Archetype mix by segment (summary input)'], ST.SECTION);
-      S.line((c.spec ? [SPEC_LABEL, DECILE_LABEL] : [segLabel(F, 'segment', c.g)]).concat(ARCH.map(a => `${a} %`)), ST.HDR);
-      mixSegs.forEach(s => { const m = mixOf(s); S.line((c.spec ? [specOfRow(s), txt(decileOf(s))] : [txt(s.segment)]).concat(ARCH.map(a => ({ v: isNum(m[a]) ? m[a] / 100 : 0, s: ST.PCT })))); });
+      S.line((c.spec ? [SPEC_LABEL, DECILE_LABEL] : [segLabel(F, 'segment', c.g)]).concat(c.mixArch.map(a => `${a} %`)), ST.HDR);
+      mixSegs.forEach(s => { const m = mixOf(s); S.line((c.spec ? [specOfRow(s), txt(decileOf(s))] : [txt(s.segment)]).concat(c.mixArch.map(a => ({ v: isNum(m[a]) ? m[a] / 100 : 0, s: ST.PCT })))); });
     }
     S.minW[0] = 16;
     S.curveRows = P;          // parameter rows, used by the live curve-group formulas on Detailed Calculations
@@ -4477,6 +4947,10 @@ abbr[title] { text-decoration: none; cursor: help; }
       add(`Accessible ${F.GRAIN[g].many}`, `Number of ${F.GRAIN[g].many} in the segment times reach % (for example 310 × 90%)`, 'A_s = N_s × r_s%', 'Detailed Calculations');
       add('Response curve', 'Share of maximum response reached after x calls for an archetype', 'Response(x) = (δ·x)^γ ÷ (x^γ + ρ)', 'Response Curves');
       add('Normalized response', 'Response scaled so the normalization point equals 1', 'n(x) = Response(x) ÷ Response(X)', 'Response Curves');
+      if (c.rcRows) {           // fs-io 1.1.0: the uptake preset resolution rule (FSFields wording)
+        const L = rcLabels(F);
+        add(txt((L.exportHeadings || {}).resolutionRule), txt(L.resolutionRule), '', `${SHEETS.curves}, ${txt((L.exportSheets || {}).configuration)}`);
+      }
       add(`Value per ${one}`, `Value pool times the ${one}'s share (${F.OPTION_LABELS.allocation[opts.allocation] || opts.allocation})`, 'K_e = V × share_e', 'Sizing engine, per entity');
       add('Contribution after x calls', `Value per ${one} times the normalized response`, 'C_e(x) = K_e × n(x)', 'Sizing engine, per entity');
       add('Marginal ROI test', opts.roiBasis === 'net' ? 'Net: incremental contribution minus incremental cost, divided by incremental cost, must reach the cutoff' : 'Gross: incremental contribution divided by incremental cost must reach the cutoff',
@@ -4849,6 +5323,14 @@ abbr[title] { text-decoration: none; cursor: help; }
     const focus = scenarios.find(s => s.id === a.focusScenarioId) || scenarios[0];
     const ai = isAiExport(a);                                     // false ⇒ the workbook is exactly the no-AI workbook
     const c = ctxFor(focus, project);
+    /* fs-io 1.1.0 (D-RUN-09): a new-shape scenario records the configuration it was sized with (its responseCurveConfig,
+       else args.config). An old-shape scenario (1.10.0 curve inputs, or not Response Curve) was not sized with any uptake
+       configuration, so its Configuration sheet reads "No configuration recorded" even when args.config is passed. */
+    c.cfg = rcConfigOf(focus, a);
+    c.rcRows = curveRowsOf(c);
+    if (!c.rcRows) c.cfg = null;
+    c.arch = archListOf(c);                                       // FR-47: archetypes from the data (reference list for a 1.10.0-shaped snapshot)
+    c.mixArch = c.arch.filter(x => x !== RC_ALL(c.F));            // 'ALL' is a curve, never a share of a segment
     c.exportedAt = a.exportedAt ? new Date(a.exportedAt) : new Date();
     if (ai) c.prov = makeProv(c.F, focus);
     const A = buildAssumptions(c, focus);
@@ -4859,11 +5341,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (curves) sheets.push(curves);
     sheets.push(buildComparison(scenarios, project, focus.id, ai), buildDetail(scenarios, project, focus.id, ai), buildFormulas(c), buildAudit(scenarios, focus, a.audit, ai));
     if (ai) sheets.push(buildAiProposals(scenarios, project, Array.isArray(a.proposalSets) ? a.proposalSets : []), buildNarrative(scenarios, a.narratives));
+    sheets.push(buildConfiguration(c));                           // fs-io 1.1.0: always last, so every 1.0.0 sheet keeps its position
     return buildXlsx(sheets);
   }
 
   const FSIO = {
-    version: 'fs-io 1.0.0',
+    version: 'fs-io 1.1.0',   // 1.1.0 (2026-10-15, FR-48 proposed): uptake presets in Assumptions, Response Curves and Formula Documentation; new Configuration sheet
     parseFile, detect, applyMapping, exportWorkbook, rankSheets, previewRows,
     exclusionLabel: (method, reason, ctx) => exclusionLabel(fields(), reason, method, ctx),
     pathLabel,
@@ -5058,6 +5541,76 @@ abbr[title] { text-decoration: none; cursor: help; }
     segments: multiSegments
   };
 
+  /* Uptake presets sample (D6): 10 deciles whose archetype mix uses the configuration's archetypes Prospects / Trialists /
+     Early Leaders, so it loads with their default uptake presets (Slow / Moderate / Steep). Every name and number is invented. */
+  const PRESET_ARCHS = ['Prospects', 'Trialists', 'Early Leaders'];
+  const PRESET_COUNTS = [240, 370, 510, 660, 820, 1010, 1240, 1530, 1910, 2400];
+  const PRESET_VALUE_PER = [1620, 1080, 790, 590, 440, 320, 230, 160, 100, 55];
+  const PRESET_MIXES = [
+    [20, 35, 45], [22, 36, 42], [25, 36, 39], [28, 37, 35], [32, 36, 32],
+    [36, 35, 29], [40, 34, 26], [45, 32, 23], [50, 30, 20], [56, 27, 17]
+  ].map(m => { const o = {}; PRESET_ARCHS.forEach((a, k) => { o[a] = m[k]; }); return o; });
+  function presetSegments(method) {
+    return DECILES.map((d, i) => ({
+      segment: d,
+      entities: PRESET_COUNTS[i],
+      compositeValue: method === 'workload' ? null : PRESET_COUNTS[i] * PRESET_VALUE_PER[i],
+      reachPct: REACH[i],
+      maxCalls: method === 'workload' ? null : MAX_CALLS[i],
+      minCalls: method === 'workload' ? null : MIN_CALLS[i],
+      plannedCalls: method === 'workload' ? PLANNED[i] : null,
+      archetypeMix: method === 'response' ? Object.assign({}, PRESET_MIXES[i]) : null
+    }));
+  }
+  function presetEntities() {
+    const r = rng(20270707);
+    const out = [];
+    DECILES.forEach((d, i) => {
+      const mix = PRESET_MIXES[i];
+      for (let k = 0; k < ENTITY_PER_DECILE; k++) {
+        const p = r() * 100;
+        let acc = 0, arche = PRESET_ARCHS[PRESET_ARCHS.length - 1];
+        for (const a of PRESET_ARCHS) { acc += mix[a]; if (p < acc) { arche = a; break; } }
+        const v = Math.round(PRESET_VALUE_PER[i] * (0.8 + r() * 0.4));
+        out.push({ id: 'HCP-' + String(20001 + out.length), segment: d, value: v, archetype: arche, attrs: { specialty: ['Neurology', 'Primary care'][out.length % 2] } });
+      }
+    });
+    return out;
+  }
+  const presetSample = {
+    project: Object.assign({}, project, {
+      name: 'Kelvorin FY2027 field size (uptake presets)',
+      brand: 'Kelvorin',
+      dataNotes: {
+        assumptions: 'Decile assignment, composite scores and archetype shares are taken as delivered by Segmentation & Targeting (synthetic extract).',
+        limitations: project.dataNotes.limitations,
+        exclusions: project.dataNotes.exclusions
+      }
+    }),
+    archetypes: PRESET_ARCHS.slice(),
+    segments: presetSegments,
+    entities: presetEntities
+  };
+
+  /* Per-sample response-curve seeds (I-2): { assignment, custom, customSourceNote }. The existing samples keep today's reference
+     curves as Custom (D6), so their outputs are unchanged; the uptake presets sample starts empty and the app fills it from
+     the configuration's default assignment. Reference values come from the engine when it is loaded, else from this constant. */
+  const REFERENCE_CURVES = { Loyalists: { delta: 5, gamma: 1.6, rho: 15 }, Splitters: { delta: 5, gamma: 1.1, rho: 2.5 },
+    Dabblers: { delta: 5, gamma: 1.2, rho: 4.5 }, Conservatives: { delta: 5, gamma: 2.0, rho: 50 } };
+  const engineRef = (root && root.FSEngine) || (typeof globalThis !== 'undefined' && globalThis.FSEngine) || null;
+  const REF_SOURCE = (engineRef && engineRef.ARCHETYPES) || REFERENCE_CURVES;
+  const SAMPLE_CURVE_NOTE = 'Synthetic sample reference curves';
+  function responseCurveSeed(kind) {
+    if (kind === 'presets') return { assignment: {}, custom: {}, customSourceNote: '' };
+    const assignment = {}, custom = {};
+    Object.keys(REF_SOURCE).forEach(a => {
+      const c = REF_SOURCE[a];
+      assignment[a] = 'custom';
+      custom[a] = { delta: c.delta, gamma: c.gamma, rho: c.rho };
+    });
+    return { assignment, custom, customSourceNote: SAMPLE_CURVE_NOTE };
+  }
+
   const FSSample = {
     project,
     users: {
@@ -5077,6 +5630,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     },
     segments,
     multiSpecialty,
+    presetSample,
+    responseCurveSeed,
     entities,
     shared: () => JSON.parse(JSON.stringify(shared)),
     // CS-5 (v0.5): the UI enters capacity as working days x calls per day (200 x 8 = the 1,600 calls above). Kept apart from
@@ -5086,6 +5641,356 @@ abbr[title] { text-decoration: none; cursor: help; }
     files
   };
   if (typeof module !== 'undefined') module.exports = FSSample; else root.FSSample = FSSample;
+})(this);
+
+;
+/* ---- ui/configurator.js ---- */
+/* FSConfigurator — the Administrator's response curve configuration (FR-46, proposed).
+   View (HTML strings) and edit logic for the four tabs: Presets, Default assignment, Curve library, Flags.
+   The app owns state, role gating, the dialog shell, audit rows and rendering; this module only reads and edits the
+   config object it is given (state.config, a deep clone of FSFields.RESPONSE_CURVE_CONFIG).
+   Every user-facing string comes from FSFields.RESPONSE_CURVE_LABELS. The mini-charts use the engine's responseCurve. */
+(function (root) {
+  'use strict';
+  const G = typeof globalThis !== 'undefined' ? globalThis : root;
+  const FF = () => G.FSFields;
+  const L = () => FF().RESPONSE_CURVE_LABELS;
+  const responseCurve = () => G.FSEngine && G.FSEngine._internal && G.FSEngine._internal.responseCurve;
+
+  const TABS = ['presets', 'defaultAssignment', 'curveLibrary', 'flags'];
+  const PARAMS = ['delta', 'gamma', 'rho'];
+  const PRESET_FIELDS = ['label', 'description', 'delta', 'gamma', 'rho', 'pickerVisible'];
+  const FLAGS = ['allowValueOnlyResponse', 'allowCustomCurve'];
+  const CUSTOM = 'custom';
+  const LABEL_MAX = 60, DESCRIPTION_MAX = 240, ARCHETYPE_MAX = 60;
+  const DECIMAL = /^(\d+(\.\d*)?|\.\d+)$/;   // plain decimal: digits with an optional decimal point
+  /* Names an archetype may not take: the reserved assignment values (FSFields.RESPONSE_CURVE_RESERVED: 'ALL', 'custom') and
+     the object-prototype keys, which a plain map cannot store safely. Compared case-insensitively. */
+  const UNSAFE_KEYS = ['__proto__', 'constructor', 'prototype'];
+  const reservedName = name => {
+    const n = String(name).toLowerCase();
+    const reserved = Object.values(FF().RESPONSE_CURVE_RESERVED || {}).map(x => String(x).toLowerCase());
+    return reserved.concat(UNSAFE_KEYS).includes(n);
+  };
+  const own = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const clone = o => (o == null ? o : JSON.parse(JSON.stringify(o)));
+  const isNum = v => typeof v === 'number' && isFinite(v);
+  const num = v => (isNum(v) ? String(v) : '');
+  const round2 = v => (isNum(v) ? String(Math.round(v * 100) / 100) : '');
+  const halfOfPeak = p => (p && isNum(p.gamma) && p.gamma > 0 && isNum(p.rho) && p.rho > 0 ? Math.pow(p.rho, 1 / p.gamma) : null);
+
+  function blankUi(tab) {
+    return { tab: TABS.includes(tab) ? tab : 'presets', drafts: {}, errors: {}, copyFrom: null, newName: '', newPreset: null, notice: '' };
+  }
+
+  /* ------------------------------------------------------------------ wording helpers (all from RESPONSE_CURVE_LABELS) */
+  const fieldLabel = f => { const R = L(); return { label: R.presetLabel, description: R.presetDescription, delta: R.delta, gamma: R.gamma, rho: R.rho, pickerVisible: R.pickerVisible, origin: R.originLabel }[f]; };
+  const fieldValue = (f, v) => {
+    const R = L();
+    if (f === 'pickerVisible') return R.flagState[String(!!v)];
+    if (f === 'origin') return R.origin[v] || v;
+    if (v == null || v === '') return R.audit.blank;
+    return String(v);
+  };
+  const presetName = (cfg, id) => { const R = L(); if (id === CUSTOM) return R.custom; const p = (cfg.presets || []).find(x => x.id === id); return p ? p.label : id; };
+  const curveText = p => { const R = L(); return PARAMS.map(k => `${R[k]} ${num(p[k])}`).join(', '); };
+  const sep = (a, b) => `${a} · ${b}`;
+
+  /* ------------------------------------------------------------------ edit logic (pure on the config it is given) */
+  /* A saved edit returns change details for the audit (one per changed field) and stamps the config once:
+     version + 1, updatedBy, updatedAt. Invalid input returns { error } and changes nothing. */
+  function stamp(cfg, ctx) {
+    cfg.version = (isNum(cfg.version) ? cfg.version : 0) + 1;
+    cfg.updatedBy = ctx && ctx.user ? ctx.user : null;
+    cfg.updatedAt = ctx && ctx.at ? ctx.at : new Date().toISOString();
+  }
+  function done(cfg, ctx, changes) { if (changes.length) stamp(cfg, ctx); return { changes }; }
+
+  function validatePresetField(cfg, p, field, raw) {
+    const R = L();
+    if (field === 'label') {
+      const v = String(raw == null ? '' : raw).trim();
+      if (!v) return { error: R.presetLabelRequired };
+      if (v.length > LABEL_MAX) return { error: R.presetLabelTooLong(LABEL_MAX) };
+      if (v.toLowerCase() === String(R.custom).trim().toLowerCase()) return { error: R.presetLabelIsCustom };
+      // P7 (P3-m3): nor start with the Custom word (the first word of the Custom label), case-insensitive, as a whole word
+      const cw = String(R.custom).trim().split(/\s+/)[0] || '';
+      if (cw && v.toLowerCase().startsWith(cw.toLowerCase()) && !/^[\p{L}\p{N}]/u.test(v.slice(cw.length))) return { error: R.presetLabelStartsCustom(cw) };
+      if ((cfg.presets || []).some(o => o !== p && String(o.label).trim().toLowerCase() === v.toLowerCase())) return { error: R.presetLabelDuplicate };
+      return { value: v };
+    }
+    if (field === 'description') {
+      const v = String(raw == null ? '' : raw).trim();
+      return v.length > DESCRIPTION_MAX ? { error: R.presetDescriptionTooLong(DESCRIPTION_MAX) } : { value: v };
+    }
+    if (field === 'pickerVisible') {
+      const v = !!raw;
+      if (!v && p.pickerVisible && !(cfg.presets || []).some(o => o !== p && o.pickerVisible)) return { error: R.pickerVisibleLast };
+      return { value: v };
+    }
+    if (PARAMS.includes(field)) {
+      const t = String(raw == null ? '' : raw).trim();   // ends only
+      if (t.includes(',')) return { error: R.presetValueComma(R[field]) };   // "1,5" is never read as 15
+      if (!DECIMAL.test(t)) return { error: R.presetValuePlainDecimal(R[field]) };   // no signs, exponents, hex or inner spaces
+      const n = Number(t);
+      return isNum(n) && n > 0 ? { value: n } : { error: R.presetValueInvalid(R[field]) };
+    }
+    return { error: R.presetValueInvalid(field) };
+  }
+  /* Origin is derived, not audited (fix 2, N1): 'beghou-reference' while every field equals FSFields.REFERENCE_PRESETS,
+     else 'client'. Recomputed on every edit, copy and reset, so each saved edit writes exactly one audit row. */
+  function originOf(p) {
+    const ref = (FF().REFERENCE_PRESETS || []).find(r => r.id === p.id);
+    return ref && PRESET_FIELDS.every(f => ref[f] === p[f]) ? 'beghou-reference' : 'client';
+  }
+  function syncOrigin(p) { p.origin = originOf(p); }
+  function setPresetField(cfg, presetId, field, raw, ctx) {
+    const p = (cfg.presets || []).find(x => x.id === presetId);
+    if (!p || !PRESET_FIELDS.includes(field)) return { changes: [] };
+    const v = validatePresetField(cfg, p, field, raw);
+    if (v.error) return { error: v.error, changes: [] };
+    if (p[field] === v.value) return { changes: [] };
+    const from = p[field];
+    const change = L().audit.configEdit(sep(p.label, fieldLabel(field)), fieldValue(field, from), fieldValue(field, v.value));
+    p[field] = v.value;
+    syncOrigin(p);
+    return done(cfg, ctx, [change]);
+  }
+  /* Restores FSFields.REFERENCE_PRESETS exactly; one audit row per changed user-editable field (origin is derived, no row). */
+  function resetPresets(cfg, ctx) {
+    const ref = clone(FF().REFERENCE_PRESETS);
+    const changes = [];
+    ref.forEach(r => {
+      const cur = (cfg.presets || []).find(x => x.id === r.id);
+      const name = cur ? cur.label : r.label;
+      PRESET_FIELDS.forEach(f => {
+        const from = cur ? cur[f] : undefined;
+        if (from !== r[f]) changes.push(L().audit.configEdit(sep(name, fieldLabel(f)), fieldValue(f, from), fieldValue(f, r[f])));
+      });
+    });
+    const same = JSON.stringify(cfg.presets) === JSON.stringify(ref);
+    cfg.presets = ref;
+    if (!changes.length && !same) changes.push(L().audit.configReset);
+    return Object.assign(done(cfg, ctx, changes), { unchanged: same });
+  }
+  function setDefault(cfg, name, presetId, ctx) {
+    const da = cfg.defaultAssignment || (cfg.defaultAssignment = {});
+    if (!own(da, name)) return { changes: [] };
+    if (!pickerOptions(cfg, da[name]).some(o => o.value === presetId)) return { changes: [] };
+    if (da[name] === presetId) return { changes: [] };
+    const change = L().audit.configEdit(sep(L().tabs.defaultAssignment, name), presetName(cfg, da[name]), presetName(cfg, presetId));
+    da[name] = presetId;
+    return done(cfg, ctx, [change]);
+  }
+  function addArchetype(cfg, rawName, presetId, ctx) {
+    const R = L(), name = String(rawName == null ? '' : rawName).trim();
+    if (!name) return { error: R.archetypeNameRequired, changes: [] };
+    if (name.length > ARCHETYPE_MAX) return { error: R.archetypeNameTooLong(ARCHETYPE_MAX), changes: [] };
+    if (reservedName(name)) return { error: R.archetypeNameReserved, changes: [] };
+    const da = cfg.defaultAssignment || (cfg.defaultAssignment = {});
+    if (Object.keys(da).some(k => k.toLowerCase() === name.toLowerCase())) return { error: R.archetypeNameDuplicate, changes: [] };
+    const opts = pickerOptions(cfg);
+    if (!opts.length) return { changes: [] };
+    const pid = opts.some(o => o.value === presetId) ? presetId : opts[0].value;
+    Object.defineProperty(da, name, { value: pid, enumerable: true, writable: true, configurable: true });
+    return done(cfg, ctx, [R.audit.configEdit(sep(R.tabs.defaultAssignment, name), R.audit.blank, presetName(cfg, pid))]);
+  }
+  function removeArchetype(cfg, name, ctx) {
+    const R = L(), da = cfg.defaultAssignment || {};
+    if (!own(da, name)) return { changes: [] };
+    const change = R.audit.configEdit(sep(R.tabs.defaultAssignment, name), presetName(cfg, da[name]), R.audit.blank);
+    delete da[name];
+    return done(cfg, ctx, [change]);
+  }
+  /* Copies a library step's δ/γ/ρ into a preset: one audit row naming the step and preset, old → new values. */
+  function copyLibrary(cfg, libId, presetId, ctx) {
+    const step = (cfg.curveLibrary || []).find(s => s.id === libId), p = (cfg.presets || []).find(x => x.id === presetId);
+    if (!step || !p) return { changes: [] };
+    if (PARAMS.every(k => p[k] === step[k])) return { changes: [] };
+    const change = L().audit.configEdit(L().audit.libraryCopy(step.label, p.label), curveText(p), curveText(step));
+    PARAMS.forEach(k => { p[k] = step[k]; });
+    syncOrigin(p);
+    return done(cfg, ctx, [change]);
+  }
+  function setFlag(cfg, key, value, ctx) {
+    if (!FLAGS.includes(key)) return { changes: [] };
+    const flags = cfg.flags || (cfg.flags = {});
+    const v = !!value;
+    if (!!flags[key] === v && typeof flags[key] === 'boolean') return { changes: [] };
+    const R = L(), change = R.audit.configEdit(R.flagLabels[key], R.flagState[String(!!flags[key])], R.flagState[String(v)]);
+    flags[key] = v;
+    return done(cfg, ctx, [change]);
+  }
+
+  /* Default-assignment choices: picker-visible presets plus Custom (and the current value if it has since been hidden). */
+  function pickerOptions(cfg, current) {
+    const R = L();
+    const opts = (cfg.presets || []).filter(p => p.pickerVisible || p.id === current).map(p => ({ value: p.id, label: p.label }));
+    if (customAllowed(cfg) || current === CUSTOM) opts.push({ value: CUSTOM, label: R.custom });
+    return opts;
+  }
+  const customAllowed = cfg => !(cfg.flags && cfg.flags.allowCustomCurve === false);
+  /* Archetypes whose default is Custom while custom curves are off: warned about, never changed silently. */
+  const customInUse = cfg => (customAllowed(cfg) ? [] : Object.keys(cfg.defaultAssignment || {}).filter(k => cfg.defaultAssignment[k] === CUSTOM));
+  function customWarning(cfg) {
+    const names = customInUse(cfg);
+    return names.length ? `<div class="msg msg-warning" role="status" id="cfg-custom-warn"><div class="msg-body"><div>${esc(L().customOffInUse(names.join(', ')))}</div></div></div>` : '';
+  }
+
+  /* ------------------------------------------------------------------ command dispatch (strings from data-arg / data-cfg) */
+  /* Returns { changes, error?, focus? }. ui holds the view state (tab, drafts, errors, copyFrom, add-row draft, notice). */
+  function command(cfg, ui, cmd, value, ctx) {
+    const parts = String(cmd || '').split(':');
+    const op = parts[0];
+    const pidOf = i => ((cfg.presets || [])[+i] || {}).id;
+    const archOf = i => Object.keys(cfg.defaultAssignment || {})[+i];
+    ui.notice = '';
+    if (op === 'tab') { if (TABS.includes(parts[1])) { ui.tab = parts[1]; ui.copyFrom = null; } return { changes: [], focus: `cfg-tab-${ui.tab}` }; }
+    if (op === 'preset') {
+      const key = `p-${parts[1]}-${parts[2]}`;
+      const r = setPresetField(cfg, pidOf(parts[1]), parts[2], value, ctx);
+      if (r.error) { ui.errors[key] = r.error; ui.drafts[key] = value; } else { delete ui.errors[key]; delete ui.drafts[key]; }
+      return r;
+    }
+    if (op === 'reset') {
+      const r = resetPresets(cfg, ctx);
+      ui.errors = {}; ui.drafts = {};
+      ui.notice = r.unchanged ? L().alreadyReference : L().audit.configReset;
+      return Object.assign(r, { focus: 'cfg-reset' });
+    }
+    if (op === 'assign') return setDefault(cfg, archOf(parts[1]), value, ctx);
+    if (op === 'newName') { ui.newName = String(value == null ? '' : value); return { changes: [] }; }
+    if (op === 'newPreset') { ui.newPreset = value; return { changes: [] }; }
+    if (op === 'add') {
+      if (value != null) ui.newName = String(value);
+      const r = addArchetype(cfg, ui.newName, ui.newPreset, ctx);
+      if (r.error) { ui.errors.newName = r.error; return Object.assign(r, { focus: 'cfg-new-name' }); }
+      delete ui.errors.newName; ui.newName = '';
+      return Object.assign(r, { focus: 'cfg-new-name' });
+    }
+    if (op === 'remove') { const r = removeArchetype(cfg, archOf(parts[1]), ctx); return Object.assign(r, { focus: 'cfg-new-name' }); }
+    if (op === 'copyOpen') { const i = +parts[1]; ui.copyFrom = ui.copyFrom === i ? null : i; return { changes: [], focus: `cfg-lib-${i}` }; }
+    if (op === 'copy') {
+      const step = (cfg.curveLibrary || [])[+parts[1]];
+      const r = copyLibrary(cfg, step && step.id, pidOf(parts[2]), ctx);
+      ui.copyFrom = null;
+      if (r.changes.length) ui.notice = r.changes[0];
+      return Object.assign(r, { focus: `cfg-lib-${parts[1]}` });
+    }
+    if (op === 'flag') return setFlag(cfg, parts[1], value, ctx);
+    return { changes: [] };
+  }
+
+  /* ------------------------------------------------------------------ view */
+  function miniChart(p) {
+    const R = L(), rc = responseCurve(), hp = halfOfPeak(p);
+    const W0 = 200, H0 = 72, pad = 6, X = 24, w = W0 - 2 * pad, h = H0 - 2 * pad;
+    const ok = rc && PARAMS.every(k => isNum(p[k]) && p[k] > 0);
+    let pts = '';
+    if (ok) {
+      const top = rc(p, X);
+      if (top > 0) { const out = []; for (let k = 0; k <= 48; k++) { const x = X * k / 48; out.push(`${(pad + x / X * w).toFixed(1)},${(pad + h - Math.min(1, rc(p, x) / top) * h).toFixed(1)}`); } pts = out.join(' '); }
+    }
+    return `<svg viewBox="0 0 ${W0} ${H0}" width="${W0}" height="${H0}" role="img" aria-label="${esc(`${p.label}: ${R.halfOfPeak} ${hp == null ? '—' : round2(hp)}`)}" xmlns="http://www.w3.org/2000/svg" style="display:block;max-width:100%;height:auto;background:var(--surface-raised);border:1px solid var(--border-container);border-radius:4px">
+      <line x1="${pad}" x2="${W0 - pad}" y1="${H0 - pad}" y2="${H0 - pad}" stroke="rgba(2,4,52,0.4)"/><line x1="${pad}" x2="${pad}" y1="${pad}" y2="${H0 - pad}" stroke="rgba(2,4,52,0.4)"/>
+      ${pts ? `<polyline fill="none" stroke="#3282FA" stroke-width="2" points="${pts}"/>` : ''}</svg>`;
+  }
+  function inputField({ id, label, value, error, cmd, kind = 'text', hint }) {
+    const desc = error || hint ? ` aria-describedby="${id}-hint"` : '';
+    const inv = error ? ' is-invalid' : '';
+    const control = kind === 'textarea'
+      ? `<textarea class="input ta${inv}" id="${id}" data-cfg="${esc(cmd)}" rows="2"${desc}${error ? ' aria-invalid="true"' : ''}>${esc(value)}</textarea>`
+      : `<input class="input${inv}" type="text" id="${id}" data-cfg="${esc(cmd)}" value="${esc(value)}" ${kind === 'num' ? 'inputmode="decimal"' : ''} autocomplete="off"${desc}${error ? ' aria-invalid="true"' : ''}>`;
+    return `<div class="field"><label class="lbl${inv}" for="${id}" id="${id}-lbl">${esc(label)}</label>${control}
+      ${error ? `<div class="err" id="${id}-hint">${esc(error)}</div>` : hint ? `<div class="hint" id="${id}-hint">${esc(hint)}</div>` : ''}</div>`;
+  }
+  function checkField({ id, label, checked, cmd, hint, error }) {
+    return `<div class="field"><label class="check" for="${id}"><input type="checkbox" id="${id}" data-cfg="${esc(cmd)}" ${checked ? 'checked' : ''}${hint || error ? ` aria-describedby="${id}-hint"` : ''}${error ? ' aria-invalid="true"' : ''}><span>${esc(label)}</span></label>
+      ${error ? `<div class="err" id="${id}-hint">${esc(error)}</div>` : hint ? `<div class="hint" id="${id}-hint">${esc(hint)}</div>` : ''}</div>`;
+  }
+  function selectField({ id, options, value, cmd, labelledby, label }) {
+    const sel = `<select class="input" id="${id}" data-cfg="${esc(cmd)}" ${labelledby ? `aria-labelledby="${labelledby}"` : ''}>${options.map(o => `<option value="${esc(o.value)}"${o.value === value ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    return label ? `<div class="field"><label class="lbl" for="${id}">${esc(label)}</label>${sel}</div>` : sel;
+  }
+  function notice(ui) { return ui.notice ? `<div class="msg msg-success" role="status"><div class="msg-body"><div>${esc(ui.notice)}</div></div></div>` : ''; }
+
+  function presetsPanel(cfg, ui, h) {
+    const R = L();
+    const val = (i, f, v) => (Object.prototype.hasOwnProperty.call(ui.drafts, `p-${i}-${f}`) ? ui.drafts[`p-${i}-${f}`] : v);
+    const err = (i, f) => ui.errors[`p-${i}-${f}`] || '';
+    const cards = (cfg.presets || []).map((p, i) => {
+      const id = f => `cfg-p-${i}-${f}`;
+      const hp = halfOfPeak(p);
+      return `<fieldset class="fs" id="cfg-p-${i}" style="border:1px solid var(--border-container);border-radius:4px;padding:12px 16px;margin:0">
+        <legend class="lbl" id="cfg-p-${i}-legend" style="padding:0 4px">${esc(p.label)} <span class="chip chip-outline chip-sm"><span>${esc(R.origin[p.origin] || p.origin)}</span></span></legend>
+        <div class="grid g2">
+          ${inputField({ id: id('label'), label: R.presetLabel, value: val(i, 'label', p.label), error: err(i, 'label'), cmd: `preset:${i}:label` })}
+          ${checkField({ id: id('pickerVisible'), label: R.pickerVisible, checked: !!p.pickerVisible, cmd: `preset:${i}:pickerVisible`, error: err(i, 'pickerVisible') })}
+        </div>
+        ${inputField({ id: id('description'), label: R.presetDescription, value: val(i, 'description', p.description), error: err(i, 'description'), cmd: `preset:${i}:description`, kind: 'textarea' })}
+        <div class="grid g3">${PARAMS.map(k => inputField({ id: id(k), label: R[k], value: val(i, k, num(p[k])), error: err(i, k), cmd: `preset:${i}:${k}`, kind: 'num' })).join('')}</div>
+        <div class="row-between" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <p class="hint" id="${id('half')}">${esc(R.halfOfPeak)}: <strong>${hp == null ? '—' : esc(round2(hp))}</strong></p>${miniChart(p)}</div>
+      </fieldset>`;
+    }).join('');
+    return `<div class="row-between" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <h3 class="sub-h" id="cfg-presets-h">${esc(R.referencePresets)}</h3>
+        <button type="button" class="btn btn-outline btn-sm" id="cfg-reset" data-act="cfg" data-arg="reset">${h.icon('refresh')}<span>${esc(R.resetReference)}</span></button></div>
+      ${notice(ui)}<div style="display:flex;flex-direction:column;gap:12px">${cards}</div>`;
+  }
+  function defaultsPanel(cfg, ui, h) {
+    const R = L(), da = cfg.defaultAssignment || {}, names = Object.keys(da);
+    const rows = names.map((n, i) => `<tr><th scope="row" class="rowh" id="cfg-da-${i}-n">${esc(n)}</th>
+      <td>${selectField({ id: `cfg-da-${i}`, options: pickerOptions(cfg, da[n]), value: da[n], cmd: `assign:${i}`, labelledby: `cfg-da-${i}-n cfg-da-col` })}</td>
+      <td><button type="button" class="ibtn" id="cfg-da-${i}-rm" data-act="cfg" data-arg="remove:${i}" aria-label="${esc(R.removeArchetype(n))}">${h.icon('trash')}</button></td></tr>`).join('');
+    const opts = pickerOptions(cfg);
+    const np = opts.some(o => o.value === ui.newPreset) ? ui.newPreset : (opts[0] || {}).value;
+    ui.newPreset = np;
+    return `<p class="hint" id="cfg-da-hint">${esc(R.defaultAssignmentHint)}</p>${customWarning(cfg)}
+      <div class="grid-wrap" tabindex="0" role="region" aria-label="${esc(R.tabs.defaultAssignment)}"><table class="grid-t" aria-describedby="cfg-da-hint"><thead><tr><th scope="col">${esc(R.archetypeName)}</th><th scope="col" id="cfg-da-col">${esc(R.preset)}</th><th scope="col"><span class="sr-only">${esc(R.addArchetype)}</span></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div role="group" aria-labelledby="cfg-add-h" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <h3 class="sub-h sr-only" id="cfg-add-h">${esc(R.addArchetype)}</h3>
+        ${inputField({ id: 'cfg-new-name', label: R.archetypeName, value: ui.newName, error: ui.errors.newName || '', cmd: 'newName' })}
+        ${selectField({ id: 'cfg-new-preset', options: opts, value: np, cmd: 'newPreset', label: R.preset })}
+        <div class="field"><button type="button" class="btn btn-outline" id="cfg-add" data-act="cfg" data-arg="add">${h.icon('plus')}<span>${esc(R.addArchetype)}</span></button></div></div>`;
+  }
+  function libraryPanel(cfg, ui) {
+    const R = L();
+    const rows = (cfg.curveLibrary || []).map((s, i) => {
+      const open = ui.copyFrom === i;
+      const pick = open ? `<tr id="cfg-lib-${i}-pick"><td colspan="6"><div role="group" aria-labelledby="cfg-lib-${i}-t" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="lbl" id="cfg-lib-${i}-t">${esc(R.copyTarget)}</span>
+          ${(cfg.presets || []).map((p, k) => `<button type="button" class="btn btn-outline btn-sm" id="cfg-lib-${i}-to-${k}" data-act="cfg" data-arg="copy:${i}:${k}">${esc(p.label)}</button>`).join('')}</div></td></tr>` : '';
+      return `<tr><th scope="row" class="rowh" id="cfg-lib-${i}-n">${esc(s.label)}</th><td class="num">${esc(num(s.delta))}</td><td class="num">${esc(num(s.gamma))}</td><td class="num">${esc(num(s.rho))}</td><td class="num">${esc(round2(halfOfPeak(s)))}</td>
+        <td><button type="button" class="btn btn-text btn-sm" id="cfg-lib-${i}" data-act="cfg" data-arg="copyOpen:${i}" aria-expanded="${open}" ${open ? `aria-controls="cfg-lib-${i}-pick"` : ''} aria-describedby="cfg-lib-${i}-n">${esc(R.copyIntoPreset)}</button></td></tr>${pick}`;
+    }).join('');
+    return `<h3 class="sub-h" id="cfg-lib-h">${esc(R.referenceLibrary)}</h3><p class="hint" id="cfg-lib-hint">${esc(R.libraryHint)}</p>${notice(ui)}
+      <div class="grid-wrap" tabindex="0" role="region" aria-label="${esc(R.referenceLibrary)}"><table class="grid-t" aria-labelledby="cfg-lib-h" aria-describedby="cfg-lib-hint"><thead><tr><th scope="col">${esc(R.libraryStep)}</th><th scope="col" class="num">${esc(R.delta)}</th><th scope="col" class="num">${esc(R.gamma)}</th><th scope="col" class="num">${esc(R.rho)}</th><th scope="col" class="num">${esc(R.halfOfPeak)}</th><th scope="col"><span class="sr-only">${esc(R.copyIntoPreset)}</span></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+  }
+  function flagsPanel(cfg) {
+    const R = L(), fl = cfg.flags || {};
+    return FLAGS.map(k => checkField({ id: `cfg-flag-${k}`, label: R.flagLabels[k], checked: !!fl[k], cmd: `flag:${k}`, hint: R.flagHelp[k] })).join('') + customWarning(cfg);
+  }
+
+  /* The dialog body. h = { icon, fmtTime } from the app. The tab panel is not a tab stop: every panel starts with focusable
+     controls (P3 review m1). Wide tables scroll in a focusable, labelled region, as the audit table does (m2). */
+  function view(cfg, ui, h) {
+    const R = L();
+    const tab = TABS.includes(ui.tab) ? ui.tab : 'presets';
+    const meta = `<p class="muted" id="cfg-meta">${esc(R.configVersionText(cfg.version))} · ${esc(R.updatedBy)}: ${esc(cfg.updatedBy || R.neverUpdated)}${cfg.updatedAt ? ` · ${esc(R.updatedAt)}: ${esc(h.fmtTime ? h.fmtTime(cfg.updatedAt) : cfg.updatedAt)}` : ''}</p>`;
+    const tablist = `<div class="tabs" role="tablist" aria-label="${esc(R.configuratorTitle)}">${TABS.map(k => `<button type="button" role="tab" class="tab${tab === k ? ' selected' : ''}" id="cfg-tab-${k}" aria-selected="${tab === k}" aria-controls="cfg-panel" tabindex="${tab === k ? 0 : -1}" data-act="cfg" data-arg="tab:${k}">${esc(R.tabs[k])}</button>`).join('')}</div>`;
+    const body = tab === 'presets' ? presetsPanel(cfg, ui, h) : tab === 'defaultAssignment' ? defaultsPanel(cfg, ui, h) : tab === 'curveLibrary' ? libraryPanel(cfg, ui) : flagsPanel(cfg);
+    return `<p class="hint">${esc(R.configuratorHint)}</p>${meta}${tablist}
+      <div role="tabpanel" id="cfg-panel" aria-labelledby="cfg-tab-${tab}" class="tabpanel" style="display:flex;flex-direction:column;gap:12px;padding-top:12px">${body}</div>`;
+  }
+
+  const FSConfigurator = Object.freeze({ TABS, LABEL_MAX, DESCRIPTION_MAX, ARCHETYPE_MAX, DECIMAL, blankUi, customInUse, view, command, pickerOptions, halfOfPeak,
+    setPresetField, resetPresets, setDefault, addArchetype, removeArchetype, copyLibrary, setFlag });
+  if (typeof module !== 'undefined' && module.exports) module.exports = FSConfigurator; else root.FSConfigurator = FSConfigurator;
 })(this);
 
 ;
@@ -5177,7 +6082,6 @@ abbr[title] { text-decoration: none; cursor: help; }
   const grainMany = g => F.GRAIN[g || 'hcp'].many;
   const SEG_FIELD = id => F.SEGMENT_FIELDS.find(f => f.id === id);
   const MAP_FIELD = id => F.MAPPING_FIELDS.find(f => f.id === id);
-  const ARCH_NAMES = () => Object.keys((E && E.ARCHETYPES) || { Loyalists: 1, Splitters: 1, Dabblers: 1, Conservatives: 1 });
 
   const SECTIONS = [
     { id: 'setup', label: 'Project and Input', icon: 'folder', sub: 'Name the engagement, choose the sizing method, then bring in the upstream segment data.' },
@@ -5262,6 +6166,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     workloadCost: true,
     showReq: false,
     ui: { traceOpen: false, advancedOpen: false, reviewTab: 'summary', notesOpen: true, compareSel: null },
+    /* P3 (FR-46, proposed): the response curve configuration. A deep clone of the frozen FSFields seed, edited only by the
+       Administrator in the configurator; it belongs to the project, so sample loads do not reset it. */
+    config: clone(F.RESPONSE_CURVE_CONFIG),
+    /* P4 (I-2): the analyst's uptake choice per archetype id (or 'ALL'), Custom curve values and their source note. Sample
+       loads seed it (FSSample.responseCurveSeed); a new project starts empty; unassigned archetypes are absent. */
+    responseCurve: { assignment: {}, custom: {}, customSourceNote: '' },
     respSegType: 'behaviour',   // CS-7: Response Curve segmentation type ('behaviour' = value + curve archetypes; 'value' = value only, not supported)
     /* Simulated AI assist (contract §7). Nothing here feeds buildInputs, the signatures or the export until a person adopts or accepts. */
     ai: { enabled: true, flow: null, sets: [], rev: 0, planStatus: {}, valueOrigins: [], pending: null, adoption: null, narratives: {}, entry: null, touched: {} }
@@ -5275,7 +6185,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   const ACTION_LABEL = { checkpoint: 'Validation check', methodology: 'Methodology option', assumption: 'Assumption changed', project: 'Project updated', 'data-entry': 'Data entered',
     ingest: 'Data ingested', upload: 'File selected', mapping: 'Column mapping', method: 'Method', correction: 'Upstream correction', calculate: 'Calculated', snapshot: 'Snapshot saved',
     rename: 'Renamed', clone: 'Cloned', recommend: 'Recommended', unrecommend: 'Recommendation removed', submit: 'Submitted for review', approve: 'Approved', reject: 'Rejected',
-    export: 'Exported', 'role-switch': 'Role switched',
+    export: 'Exported', 'role-switch': 'Role switched', config: (F.RESPONSE_CURVE_LABELS || {}).configuratorTitle,
     'ai-setting': 'AI assistance setting', 'ai-brief': 'AI brief captured', 'ai-proposed': 'AI candidates proposed', 'ai-blocked': 'AI candidate blocked',
     'ai-gap-filled': 'AI question answered', 'ai-adopt-start': 'AI candidate opened for review', 'ai-accepted': 'AI value accepted',
     'ai-edit-accepted': 'AI value edited and accepted', 'ai-rejected': 'AI value rejected', 'ai-adopted': 'AI candidate adopted',
@@ -5301,10 +6211,13 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* Engine inputs: segment rows are projected to the fields the method uses; everything else is null. */
   function buildInputs() {
     const ids = new Set(visibleIds());
+    /* D3 (P4): value-only with the configuration flag on sends no archetypes, so every row uses the single 'ALL' curve. */
+    const vo = valueOnlyRuns();
     const rows = state.segments.map(s => {
       const r = { segment: s.segment, entities: s.entities, compositeValue: null, reachPct: s.reachPct, maxCalls: null, minCalls: null, plannedCalls: null, archetypeMix: null };
       ['compositeValue', 'maxCalls', 'minCalls', 'plannedCalls', 'archetypeMix'].forEach(k => { if (ids.has(k)) r[k] = s[k] == null ? null : clone(s[k]); });
       if (ids.has('archetypeMix')) r.archetype = s.archetypeMix ? null : (s.archetype || null);   // FR-14: single archetype; a mix wins
+      if (vo) { r.archetypeMix = null; if (ids.has('archetypeMix')) r.archetype = null; }
       if (hasSpecKey(s)) { r.specialty = s.specialty; r.decile = s.decile == null ? null : String(s.decile); }   // CS-3 display keys (identity stays segment)
       return r;
     });
@@ -5312,11 +6225,26 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (sh.costMode !== 'layers') sh.layers = null;
     if (method() === 'workload' && !state.workloadCost) sh.repCost = null;   // Workload: cost is optional
     if (sh.capacityInput && sh.capacityInput.mode === 'derived') sh.capacity = null;   // engine derives it (v1.3)
+    const ents = state.entities ? clone(state.entities) : null;
+    if (ents && vo) ents.forEach(e => { if (e && typeof e === 'object') e.archetype = null; });
+    const mas = projectMethodAssumptions();
+    if (method() === 'response') withCurves(mas);
     return {
       method: method(), grain: state.project.grain, inputGrain: state.inputGrain,
-      segments: rows, entities: state.entities ? clone(state.entities) : null,
-      shared: sh, methodAssumptions: projectMethodAssumptions()
+      segments: rows, entities: ents,
+      shared: sh, methodAssumptions: mas
     };
+  }
+  /* I-4: Response Curve curves come only from here: FSEngine.resolveCurves over the uptake assignment, restricted to the
+     archetypes in the data (or 'ALL' for value-only), with the configuration's presets and the Custom values. A stored
+     curveParams (older draft) is never sent; with nothing assigned the keys are left out (the engine's old-shape path). */
+  function withCurves(m) {
+    delete m.curveParams; delete m.curveProvenance; delete m.customSourceNote;
+    const r = resolvedCurves();
+    if (!Object.keys(r.curveParams).length) return m;
+    m.curveParams = r.curveParams; m.curveProvenance = r.provenance;
+    if (Object.keys(r.provenance).some(id => r.provenance[id].source === 'custom')) m.customSourceNote = state.responseCurve.customSourceNote;
+    return m;
   }
   /* v1.1 ValueInputs: either direct annualValue or the forecast chain, never both.
      v0.5.1 (CS-1, delta §3): no mode choice. The chain always sends all three shares and never sends
@@ -5350,7 +6278,10 @@ abbr[title] { text-decoration: none; cursor: help; }
   const valueMode = () => state.valueMode[method()] || 'chain';
   const inputsSig = () => JSON.stringify({ p: state.project, g: state.inputGrain, s: state.segments.map(s => [s.segment, s.entities, s.compositeValue, s.archetypeMix, s.archetype]), e: state.entities ? state.entities.length : 0 });
   /* CS-7: a Response draft marked value-only cannot pass the assumptions check, so the choice is part of the signature. */
-  const assumptionsSig = () => { const s = JSON.stringify(buildInputs()); return method() === 'response' && state.respSegType === 'value' ? s + '|value-only' : s; };
+  /* An uptake set to Custom while an Administrator has turned custom curves off cannot pass the assumptions check, so that
+     state is part of the signature too: turning the flag off makes an existing Custom result stale. */
+  const customBlocked = () => rcFlags().allowCustomCurve === false && Object.keys(state.responseCurve.assignment).some(a => state.responseCurve.assignment[a] === RC_CUSTOM);
+  const assumptionsSig = () => { let s = JSON.stringify(buildInputs()); if (method() === 'response' && state.respSegType === 'value') s += valueOnlyRuns() ? '|value-only-all' : '|value-only'; return method() === 'response' && customBlocked() ? s + '|custom-off' : s; };
   const resultIsCurrent = () => !!state.result && state.resultSig === assumptionsSig();
 
   function stageStatus(id) {
@@ -5377,11 +6308,24 @@ abbr[title] { text-decoration: none; cursor: help; }
 
   /* Classify an engine Issue into the inputs or the assumptions checkpoint using SEGMENT_FIELDS ownership. */
   function issueStage(issue) {
+    /* FR-47 (P4): an archetype in the data with no uptake is an assumption to choose on Model Assumptions, not a data defect;
+       likewise value-only rows waiting for the "All HCPs" uptake. */
+    if (issue.code === 'unknown-archetype' || (issue.code === 'response-needs-entity-or-mix' && valueOnlyRuns()) || mixTotalFromUptake(issue)) return 'assumptions';
     const p = String(issue.path || '');
     const m = p.match(/^segments(?:\[(\d*)\])?\.(\w+)/);
     if (m) { const f = SEG_FIELD(m[2]); return f && f.owner === 'upstream' ? 'inputs' : 'assumptions'; }
     if (/^entities(\[|\.|$)/.test(p) || /^(method|grain|inputGrain|segments)$/.test(p)) return 'inputs';
     return 'assumptions';
+  }
+  /* The engine totals a mix over the archetypes it has curves for; with an archetype still waiting for its uptake, a mix that
+     totals 100% as delivered is reported short. That follows from the missing uptake (Step 2), not from the data (fix 2). */
+  function mixTotalFromUptake(issue) {
+    const m = issue.code === 'archetype-mix-total' && String(issue.path || '').match(/^segments\[(\d+)\]\.archetypeMix$/);
+    const mix = m && state.segments[+m[1]] && state.segments[+m[1]].archetypeMix;
+    if (!mix || !Object.keys(mix).every(k => isNum(mix[k]) && mix[k] >= 0)) return false;   // N2: any other mix defect stays a Step 1 error
+    const tot = Object.keys(mix).reduce((t, k) => t + (isNum(mix[k]) ? mix[k] : 0), 0);
+    const cp = resolvedCurves().curveParams;
+    return Math.abs(tot - 100) <= 1e-6 && Object.keys(mix).some(k => !E.ARCHETYPES[k] && !ownKey(cp, k));
   }
   function issueWhere(issue) {
     const p = String(issue.path || '');
@@ -5507,7 +6451,7 @@ abbr[title] { text-decoration: none; cursor: help; }
         <div class="ab-icons">
           ${['search:Search', 'bell:Notifications', 'waffle:App switcher', 'settings:Settings'].map(x => { const [ic, l] = x.split(':'); return `<button type="button" class="ibtn ibtn-24 ab-ic" data-act="chrome" data-arg="${l}" aria-label="${l}">${icon(ic, 24)}</button>`; }).join('')}
         </div>
-        ${aiToggleHtml()}
+        ${configButton()}${aiToggleHtml()}
         <span class="avatar" role="img" aria-label="Signed in as ${esc(u.name)}, ${esc(ROLE_LABEL[state.role])}" title="${esc(u.name)} · ${esc(ROLE_LABEL[state.role])}">${esc(initials)}</span>
       </div>
     </header>`;
@@ -5645,7 +6589,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const pe = showErr ? projectErrors() : {};
     const p = state.project;
     const intro = !state.project.name && !state.segments.length
-      ? msg('neutral', 'New to field sizing? Load a complete synthetic project to see how every step fits together. You can change anything afterwards.', { actions: btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'outline', ic: 'file', id: 'load-sample' }) + (SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : '') })
+      ? msg('neutral', 'New to field sizing? Load a complete synthetic project to see how every step fits together. You can change anything afterwards.', { actions: btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'outline', ic: 'file', id: 'load-sample' }) + (SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : '') + presetSampleBtn() })
       : '';
     const projectCard = card({
       id: 'c-project', step: 1, title: 'Project', sub: 'Who and what this sizing is for. The grain applies to every step and label.',
@@ -5735,8 +6679,16 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (grain === 'entity' && ['entities', 'compositeValue'].includes(f.id)) return false;
       return segIds.has(f.id);
     }).map(f => Object.assign({}, f, { required: req.includes(f.id) }));
+    // Archetypes an Administrator added to the live configuration get share columns too (same shape as FSFields' own).
+    if (m === 'response' && grain === 'summary') liveArchetypes().forEach(a => {
+      const id = `archetypeMix.${a}`;
+      if (!F.MAPPING_FIELDS.some(f => f.id === id)) base.push({ id, label: `${a} share %`, optional: true, grain: 'summary', methods: ['response'], required: false,
+        aliases: [`${a.toLowerCase()} %`, `${a.toLowerCase()} share`, `% ${a.toLowerCase()}`, a.toLowerCase()] });
+    });
     return base;
   }
+  /* The live configuration's archetypes, passed to the importer so names an Administrator added are recognised. */
+  const liveArchetypes = () => Object.keys((state.config && state.config.defaultAssignment) || {});
   const flowSheet = () => state.importFlow.sheets[state.importFlow.sheetIndex];
   const headerCells = () => (flowSheet().rows[state.importFlow.headerRow] || []).map((c, i) => (c === '' || c == null ? `Column ${i + 1}` : String(c)));
   function confText(fid) {
@@ -5858,7 +6810,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* ---------- loaded data (upstream fields) ---------- */
   function mixText(mix) {
     if (!mix) return '';
-    return ARCH_NAMES().map(a => `${a} ${fmt.num1(mix[a] || 0)}%`).join(' · ');
+    return segArchetypes().map(a => `${a} ${fmt.num1(mix[a] || 0)}%`).join(' · ');   // FR-47: the archetypes in the data
   }
   const archPicker = (m, i, s) => m === 'response' && state.inputGrain === 'summary';
   const archText = s => (s.archetypeMix ? mixText(s.archetypeMix) : s.archetype || 'Not supplied');
@@ -6176,87 +7128,279 @@ abbr[title] { text-decoration: none; cursor: help; }
       ${mode === 'chain' && ivErr && iv && isNum(iv.annual) ? `<div class="err" role="alert">${esc(ivErr)}</div>` : ''}`;
   }
 
-  /* CS-7: read-only count of entities by curve archetype, as supplied upstream (a mix spreads a segment's count by its shares). */
-  function archetypeCounts() {
-    const out = {}; ARCH_NAMES().forEach(a => { out[a] = 0; });
+  /* ---------- P4 (FR-44, FR-45, FR-47, proposed): response curve uptake per archetype ----------
+     The archetype list is read from the data (FR-47), never a fixed list: entity rows when present, else every segment's
+     archetype mix keys and single archetype; reference archetypes first (the engine's order), then the others as first seen.
+     The analyst chooses an uptake preset per archetype (or Custom, with δ/γ/ρ and one source note); the curves the engine
+     receives come only from FSEngine.resolveCurves (buildInputs → withCurves). Strings: FSFields.RESPONSE_CURVE_LABELS (RCL). */
+  const RC_ALL = (F.RESPONSE_CURVE_RESERVED || {}).all || 'ALL';
+  const RC_CUSTOM = (F.RESPONSE_CURVE_RESERVED || {}).custom || 'custom';
+  const RC_PARAMS = ['delta', 'gamma', 'rho'];
+  const ownKey = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+  const blankResponseCurve = () => ({ assignment: {}, custom: {}, customSourceNote: '' });
+  const rcName = id => (id === RC_ALL ? RCL.all : id);
+  const refFirst = seen => { const ref = Object.keys((E && E.ARCHETYPES) || {}); return ref.filter(a => seen.includes(a)).concat(seen.filter(a => !ref.includes(a))); };
+  const addArch = (seen, a) => { if (typeof a === 'string' && a !== '' && !seen.includes(a)) seen.push(a); };
+  function segArchetypes() {
+    const seen = [];
+    state.segments.forEach(s => { if (s.archetypeMix) Object.keys(s.archetypeMix).forEach(a => addArch(seen, a)); else addArch(seen, s.archetype); });
+    return refFirst(seen);
+  }
+  const entityRows = () => (state.entities && state.entities.length ? state.entities : null);
+  function dataArchetypes() {
+    const ents = entityRows();
+    if (!ents) return segArchetypes();
+    const seen = [];
+    ents.forEach(e => addArch(seen, e && e.archetype));
+    return refFirst(seen);
+  }
+  const rcFlags = () => (state.config && state.config.flags) || {};
+  const respValueOnly = () => method() === 'response' && state.respSegType === 'value';
+  /* D3: value-only stays blocked (CS-7) unless the configuration allows it; then one "All HCPs" row ('ALL') is sized. */
+  const valueOnlyBlocked = () => respValueOnly() && rcFlags().allowValueOnlyResponse !== true;
+  const valueOnlyRuns = () => respValueOnly() && rcFlags().allowValueOnlyResponse === true;
+  const curveArchetypes = () => (valueOnlyRuns() ? [RC_ALL] : dataArchetypes());
+  const rcPresets = () => (state.config && state.config.presets) || [];
+  const uptakeLabel = a => (!a ? RCL.notAssigned : a === RC_CUSTOM ? RCL.custom : (rcPresets().find(p => p.id === a) || {}).label || a);
+  /* Resolved curves for the archetypes in the data only (I-4); assignments for archetypes no longer in the data are kept, unsent. */
+  function resolvedCurves() {
+    const rc = state.responseCurve, ids = curveArchetypes(), asg = {};
+    ids.forEach(id => { if (ownKey(rc.assignment, id) && rc.assignment[id]) asg[id] = rc.assignment[id]; });
+    const out = E.resolveCurves(asg, rcPresets(), rc.custom);
+    return { ids, assignment: asg, curveParams: out.curveParams, provenance: out.provenance, issues: out.issues };
+  }
+  /* Uptake issues as assumption-check items against the right row (path + "Go to field" target). resolveCurves issues
+     (unknown-preset, custom-curve-invalid) are matched to their archetype by exact path; the UI adds "no uptake chosen"
+     (no hidden default), Custom while custom curves are off, and the required source note (custom-source-missing). */
+  function curveIssues(r) {
+    if (method() !== 'response' || valueOnlyBlocked()) return [];
+    r = r || resolvedCurves();
+    const V = RCL.validation || {}, rc = state.responseCurve, out = [];
+    const where = id => `${RCL.uptakeByArchetype} · ${rcName(id)}`;
+    r.ids.forEach((id, i) => {
+      const a = r.assignment[id], p = `responseCurve.assignment.${id}`;
+      if (!a) out.push({ where: where(id), message: V.unassigned(rcName(id)), path: p, target: `rc-${i}-up`, unassigned: true });
+      else if (a === RC_CUSTOM && rcFlags().allowCustomCurve === false) out.push({ where: where(id), message: RCL.customNotAllowed, path: p, target: `rc-${i}-up` });
+      /* Fix 2 (F2): a blank Custom δ is an error like γ and ρ; the engine's default δ of 5 is never applied silently. */
+      if (a === RC_CUSTOM) { const d = (rc.custom[id] || {}).delta; if (d === null || d === undefined || d === '')
+        out.push({ where: where(id), message: V['custom-curve-invalid'](rcName(id), RCL.delta), path: `responseCurve.custom.${id}.delta`, target: `rc-${i}-delta` }); }
+    });
+    r.issues.forEach(x => {
+      const p = String(x.path || '');
+      const i = r.ids.findIndex(id => p === `responseCurve.assignment.${id}` || RC_PARAMS.some(k => p === `responseCurve.custom.${id}.${k}`));
+      if (i < 0) return;
+      const id = r.ids[i];
+      if (x.code === 'unknown-preset') out.push({ where: where(id), message: V['unknown-preset'](rcName(id), r.assignment[id]), path: p, target: `rc-${i}-up` });
+      else if (x.code === 'custom-curve-invalid') { const k = p.slice(p.lastIndexOf('.') + 1), fm = rcFmtOf(id, k);
+        out.push({ where: where(id), message: fm ? `${rcName(id)} · ${fm}` : V['custom-curve-invalid'](rcName(id), RCL[k]), path: p, target: `rc-${i}-${k}` }); }
+    });
+    if (r.ids.some(id => r.assignment[id] === RC_CUSTOM) && !String(rc.customSourceNote || '').trim())
+      out.push({ where: RCL.sourceNote, message: V['custom-source-missing'](), path: 'responseCurve.customSourceNote', target: 'rc-note' });
+    return out;
+  }
+
+  /* Read-only count of entities by curve archetype, as supplied upstream (a mix spreads a segment's count by its shares). */
+  function archetypeCounts(ids) {
+    const out = {}; ids.forEach(a => { out[a] = 0; });
+    const all = ids.length === 1 && ids[0] === RC_ALL;
     let none = 0;
-    if (state.inputGrain === 'entity' && state.entities && state.entities.length) state.entities.forEach(e => { if (e.archetype && out[e.archetype] != null) out[e.archetype] += 1; else none += 1; });
+    if (entityRows()) state.entities.forEach(e => { if (all) out[RC_ALL] += 1; else if (e.archetype && ownKey(out, e.archetype)) out[e.archetype] += 1; else none += 1; });
     else state.segments.forEach(s => {
       const n = isNum(s.entities) ? s.entities : 0;
-      if (s.archetypeMix) ARCH_NAMES().forEach(a => { out[a] += n * (isNum(s.archetypeMix[a]) ? s.archetypeMix[a] : 0) / 100; });
-      else if (s.archetype && out[s.archetype] != null) out[s.archetype] += n; else none += n;
+      if (all) out[RC_ALL] += n;
+      else if (s.archetypeMix) ids.forEach(a => { out[a] += n * (isNum(s.archetypeMix[a]) ? s.archetypeMix[a] : 0) / 100; });
+      else if (s.archetype && ownKey(out, s.archetype)) out[s.archetype] += n; else none += n;
     });
     return { out, none };
   }
-  function archetypeSummary() {
-    const g = state.project.grain, { out, none } = archetypeCounts(), total = Object.keys(out).reduce((a, k) => a + out[k], 0) + none;
-    const rows = ARCH_NAMES().map(a => `<tr><th scope="row" class="rowh">${esc(a)}</th><td class="num">${fmt.int(out[a])}</td><td class="num">${total > 0 ? fmt.pct(out[a] / total * 100) : '—'}</td></tr>`).join('')
-      + (none ? `<tr><th scope="row" class="rowh">No archetype supplied</th><td class="num">${fmt.int(none)}</td><td class="num">${total > 0 ? fmt.pct(none / total * 100) : '—'}</td></tr>` : '');
-    return `<div class="arch-sum" id="arch-summary"><p class="lbl">${esc(cap(grainMany(g)))} by archetype</p>
-      <div class="grid-wrap"><table class="grid-t arch-t"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">${esc(cap(grainMany(g)))}</th><th scope="col" class="num">Share</th></tr></thead><tbody>${rows}</tbody>
-      <tfoot><tr><th scope="row" class="rowh">Total</th><td class="num">${fmt.int(total)}</td><td></td></tr></tfoot></table></div>
-      <p class="hint">Read-only, from the uploaded data. A segment supplied with an archetype mix is spread by its shares. The mix is not editable here.</p></div>`;
-  }
-  /* ---------- 2026-10-12 review (Kunal): response curve inputs per archetype, with a live chart beside them ----------
-     gamma (shape) and rho (saturation) are editable; delta cancels under normalization and is not shown. Values default to the
-     engine's reference parameters (decision 9, amended). The chart plots the engine's own normalized curve,
-     Response(x) / Response(X), using FSEngine.archetypesFor and the same formula; nothing here feeds the calculation. */
+  /* The chart plots the engine's own normalized curve, Response(x) / Response(X), with the same formula, for the curve each
+     archetype resolves to; nothing here feeds the calculation. */
   const CURVE_COLORS = { Loyalists: '#020434', Splitters: '#3282FA', Dabblers: '#11A13C', Conservatives: '#C77700' };
-  const refArch = a => (E && E.ARCHETYPES && E.ARCHETYPES[a]) || null;
-  const curveOk = p => p && isNum(p.gamma) && p.gamma > 0 && isNum(p.rho) && p.rho > 0;
+  const CURVE_PALETTE = ['#3282FA', '#11A13C', '#C77700', '#020434', '#8A3FFC', '#E60F65', '#00838F', '#6D4C41'];
+  const curveColor = (a, i) => CURVE_COLORS[a] || CURVE_PALETTE[i % CURVE_PALETTE.length];
+  const curveOk = p => !!p && isNum(p.delta) && p.delta > 0 && isNum(p.gamma) && p.gamma > 0 && isNum(p.rho) && p.rho > 0;
   const curveR = (p, x) => (x <= 0 ? 0 : Math.pow(p.delta * x, p.gamma) / (Math.pow(x, p.gamma) + p.rho));
-  const curveEff = () => (E && E.archetypesFor ? E.archetypesFor(ma() || {}) : (E && E.ARCHETYPES) || {});
-  const curveEdited = a => { const r = refArch(a), u = ((ma() || {}).curveParams || {})[a] || {}; return !!r && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); };
   const halfAt = p => (curveOk(p) ? Math.pow(p.rho, 1 / p.gamma) : null);
-  function curvePlotSvg() {
+  const rawNum = v => (isNum(v) ? String(v) : '—');
+  function curvePlotSvg(r) {
     const X = isNum((ma() || {}).scenarioMaxCalls) && ma().scenarioMaxCalls > 0 ? ma().scenarioMaxCalls : DEFAULTS.scenarioMaxCalls;
-    const A = curveEff(), W0 = 460, H0 = 280, L = 44, R = 14, T = 14, B = 40, w = W0 - L - R, h = H0 - T - B;
+    const A = r.curveParams, W0 = 460, H0 = 280, L = 44, R = 14, T = 14, B = 40, w = W0 - L - R, h = H0 - T - B;
     const sx = x => L + (x / X) * w, sy = y => T + h - Math.max(0, Math.min(1.05, y)) / 1.05 * h;
     const path = p => { const d = curveR(p, X); if (!(d > 0)) return ''; const pts = []; for (let k = 0; k <= 96; k++) { const x = X * k / 96; pts.push(`${sx(x).toFixed(1)},${sy(curveR(p, x) / d).toFixed(1)}`); } return pts.join(' '); };
     const xt = []; const stepX = X <= 24 ? 4 : X <= 60 ? 8 : 20; for (let x = 0; x <= X; x += stepX) xt.push(x); if (xt[xt.length - 1] !== X) xt.push(X);
     const grid = [0, 0.25, 0.5, 0.75, 1].map(y => `<line x1="${L}" x2="${L + w}" y1="${sy(y)}" y2="${sy(y)}" stroke="rgba(2,4,52,0.08)"/><text x="${L - 6}" y="${sy(y) + 4}" text-anchor="end" font-size="11" fill="rgba(2,4,52,0.6)">${y === 0 ? '0' : y.toFixed(2).replace(/0$/, '')}</text>`).join('');
     const xl = xt.map(x => `<line x1="${sx(x)}" x2="${sx(x)}" y1="${T + h}" y2="${T + h + 4}" stroke="rgba(2,4,52,0.4)"/><text x="${sx(x)}" y="${T + h + 16}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)">${x}</text>`).join('');
-    const names = ARCH_NAMES();
-    const ghosts = names.filter(a => curveEdited(a) && refArch(a)).map(a => `<polyline fill="none" stroke="${CURVE_COLORS[a] || '#020434'}" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.45" points="${path(refArch(a))}"/>`).join('');
-    const lines = names.filter(a => curveOk(A[a])).map(a => `<polyline fill="none" stroke="${CURVE_COLORS[a] || '#020434'}" stroke-width="2.25" points="${path(A[a])}"><title>${esc(a)}: gamma ${fmt.num1(A[a].gamma)}, rho ${fmt.num1(A[a].rho)}</title></polyline>`).join('');
-    const label = `Normalized response by call count, 0 to ${X} calls, for ${names.join(', ')}. ${names.map(a => (curveOk(A[a]) ? `${a}: half of peak response at about ${fmt.num1(halfAt(A[a]))} calls` : `${a}: invalid parameters`)).join('; ')}.`;
+    const names = r.ids;
+    const lines = names.map((a, i) => (curveOk(A[a]) ? `<polyline fill="none" stroke="${curveColor(a, i)}" stroke-width="2.25" data-arch="${esc(a)}" points="${path(A[a])}"><title>${esc(RCL.curveLegendPreset(rcName(a), uptakeLabel(r.assignment[a])))}</title></polyline>` : '')).join('');
+    const label = `Normalized response by call count, 0 to ${X} calls, for ${names.map(rcName).join(', ')}. ${names.map(a => (curveOk(A[a]) ? `${RCL.curveLegendPreset(rcName(a), uptakeLabel(r.assignment[a]))}, half of peak response at about ${fmt.num1(halfAt(A[a]))} calls` : `${rcName(a)}: ${r.assignment[a] ? 'invalid parameters' : RCL.notAssigned}`)).join('; ')}.`;
     return `<svg viewBox="0 0 ${W0} ${H0}" role="img" aria-label="${esc(label)}" xmlns="http://www.w3.org/2000/svg">
       ${grid}<line x1="${L}" x2="${L + w}" y1="${T + h}" y2="${T + h}" stroke="rgba(2,4,52,0.4)"/>${xl}
       <text x="${L + w / 2}" y="${H0 - 6}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)">Calls per ${esc(grainOne(state.project.grain))} per year</text>
       <text x="12" y="${T + h / 2}" text-anchor="middle" font-size="11" fill="rgba(2,4,52,0.6)" transform="rotate(-90 12 ${T + h / 2})">Response (1 = at ${X} calls)</text>
-      ${ghosts}${lines}</svg>`;
+      ${lines}</svg>`;
   }
-  function curveLegend() {
-    const any = ARCH_NAMES().some(curveEdited);
-    return `<div class="curve-legend">${ARCH_NAMES().map(a => `<span><span class="sw" style="background:${CURVE_COLORS[a] || '#020434'}"></span>${esc(a)}</span>`).join('')}${any ? '<span class="muted"><span class="sw sw-dash"></span>Reference curve (before your edit)</span>' : ''}</div>`;
+  /* Legend: the preset label per archetype (or Custom, or "Not chosen"). */
+  function curveLegend(r) {
+    return `<div class="curve-legend" id="curve-legend">${r.ids.map((a, i) => `<span><span class="sw" style="background:${curveColor(a, i)}"></span>${esc(RCL.curveLegendPreset(rcName(a), uptakeLabel(r.assignment[a])))}</span>`).join('')}</div>`;
   }
+  /* Live update while typing a Custom value: chart, legend and the Advanced read-only values. */
   function refreshCurve() {
-    const pl = document.getElementById('curve-plot'); if (pl) pl.innerHTML = curvePlotSvg() + curveLegend();
-    const A = curveEff();
-    ARCH_NAMES().forEach((a, i) => { const c = document.getElementById(`cp-${i}-half`); if (c) c.textContent = curveOk(A[a]) ? fmt.num1(halfAt(A[a])) : '—'; });
+    const r = resolvedCurves();
+    const pl = document.getElementById('curve-plot'); if (pl) pl.innerHTML = curvePlotSvg(r) + curveLegend(r);
+    r.ids.forEach((a, i) => {
+      const p = r.curveParams[a];
+      RC_PARAMS.forEach(k => { const c = document.getElementById(`rc-adv-${i}-${k}`); if (c) c.textContent = p ? rawNum(p[k]) : '—'; });
+      const c = document.getElementById(`rc-adv-${i}-half`); if (c) c.textContent = curveOk(p) ? fmt.num(halfAt(p), 2) : '—';
+    });
   }
-  function curveBlock() {
-    const iss = assumptionIssues(), A = curveEff(), cp = (ma() || {}).curveParams || {}, ro = readOnly();
-    const anyEdited = ARCH_NAMES().some(curveEdited);
-    const val = (a, k) => { const u = cp[a] || {}; return u[k] !== undefined ? u[k] : (refArch(a) || {})[k]; };
-    const rows = ARCH_NAMES().map((a, i) => {
-      const eg = iss[`methodAssumptions.curveParams.${a}.gamma`], er = iss[`methodAssumptions.curveParams.${a}.rho`], r = refArch(a) || {};
-      return `<tr class="${eg || er ? 'has-err' : ''}"><th scope="row" class="rowh"><span class="sw" style="background:${CURVE_COLORS[a] || '#020434'}"></span>${esc(a)}${curveEdited(a) ? ' <span class="chip chip-outline chip-sm">Edited</span>' : ''}</th>
-        <td class="cell-in num">${numInput({ id: `cp-${i}-g`, bind: `ma.curveParams.${a}.gamma`, value: val(a, 'gamma'), compact: true, error: eg ? 'x' : '', ariaLabel: `${a} shape (gamma), reference ${r.gamma}` })}</td>
-        <td class="cell-in num">${numInput({ id: `cp-${i}-r`, bind: `ma.curveParams.${a}.rho`, value: val(a, 'rho'), compact: true, error: er ? 'x' : '', ariaLabel: `${a} saturation (rho), reference ${r.rho}` })}</td>
-        <td class="num derived-cell" id="cp-${i}-half">${curveOk(A[a]) ? fmt.num1(halfAt(A[a])) : '—'}</td>
-        <td class="num muted">${esc(String(r.gamma))} / ${esc(String(r.rho))}</td></tr>`;
-    }).join('');
-    const errs = ARCH_NAMES().flatMap(a => [iss[`methodAssumptions.curveParams.${a}.gamma`], iss[`methodAssumptions.curveParams.${a}.rho`]]).filter(Boolean);
-    return `<div class="curve-blk" id="curve-params"><div class="row-between"><p class="lbl">Response curve assumptions</p>${anyEdited && !ro ? btn({ label: 'Reset to reference curves', act: 'curveReset', kind: 'text', ic: 'refresh', id: 'curve-reset', small: true }) : ''}</div>
-      <p class="hint">Two values set the shape of each archetype's curve: <strong>shape (gamma)</strong> controls how fast uptake starts (higher means a slower, more S-shaped start) and <strong>saturation (rho)</strong> controls how many calls it takes before the response levels off (higher means later). Edit a value and the chart updates as you type.</p>
-      <div class="curve-split"><div class="grid-wrap"><table class="grid-t curve-t" id="curve-table"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">Shape (γ)</th><th scope="col" class="num">Saturation (ρ)</th><th scope="col" class="num is-derived">Half of peak at (calls)</th><th scope="col" class="num">Reference γ / ρ</th></tr></thead><tbody>${rows}</tbody></table>
-        ${errs.length ? `<div class="err" role="alert"><ul class="plain">${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
-        <p class="hint">Half of peak = ρ^(1/γ) calls. Reference values are the standard method's; changing them is recorded in the audit trail and shown on the scenario.</p></div>
-        <div class="curve-plot" id="curve-plot" aria-live="polite">${curvePlotSvg()}${curveLegend()}</div></div></div>`;
+  /* Step 2 · Method-specific: Response Curve → "Uptake by archetype" (§6.3 1–5). Read-only for the Administrator (D4). */
+  function uptakeSection() {
+    const g = state.project.grain, r = resolvedCurves(), ids = r.ids, rc = state.responseCurve, asg = r.assignment;
+    const vo = valueOnlyRuns(), ro = readOnly();
+    const { out, none } = archetypeCounts(ids), total = ids.reduce((s, a) => s + out[a], 0) + none;
+    /* Errors show live, except "no uptake chosen", which shows once the assumptions check has been run. */
+    const run = assumptionIssues(), live = curveIssues(r), err = {};
+    live.forEach(x => { if (!x.unassigned || run[x.path]) err[x.path] = x.message; });
+    const anyCustom = ids.some(a => asg[a] === RC_CUSTOM);
+    const rows = ids.map((a, i) => {
+      const name = rcName(a), cur = asg[a] || null, pa = `responseCurve.assignment.${a}`;
+      const opts = CFG && CFG.pickerOptions ? CFG.pickerOptions(state.config, cur) : rcPresets().filter(p => p.pickerVisible || p.id === cur).map(p => ({ value: p.id, label: p.label }));
+      const pick = dropdown({ id: `rc-${i}-up`, label: name, compact: true, value: cur, options: opts, placeholder: RCL.chooseUptake, error: err[pa] ? 'x' : '', onSelect: v => { rcAssign(a, v); render(); } });
+      const custErr = RC_PARAMS.some(k => err[`responseCurve.custom.${a}.${k}`]);
+      const c = rc.custom[a] || {};
+      const custom = cur === RC_CUSTOM ? `<tr class="rc-custom${custErr ? ' has-err' : ''}"><td colspan="4"><div class="rc-custom-in" role="group" aria-labelledby="rc-${i}-name" style="display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-end;padding:4px 0 4px 20px">
+          ${RC_PARAMS.map(k => { const raw = rcRawOf(a, k), h = numInput({ id: `rc-${i}-${k}`, value: c[k], compact: true, error: err[`responseCurve.custom.${a}.${k}`] ? 'x' : '', ariaLabel: `${name} · ${RCL[k]}` }).replace('<input ', `<input data-rc-arch="${i}" data-rc-param="${k}" `);
+            return `<div class="field" style="margin:0"><label class="lbl" for="rc-${i}-${k}">${esc(RCL[k])}</label>${raw != null ? h.replace('value=""', `value="${esc(raw)}"`) : h}</div>`; }).join('')}</div></td></tr>` : '';
+      return `<tr class="${err[pa] || custErr ? 'has-err' : ''}"><th scope="row" class="rowh" id="rc-${i}-name"><span class="sw" style="background:${curveColor(a, i)}"></span>${esc(name)}</th>
+        <td class="num">${fmt.int(out[a])}</td><td class="num">${total > 0 ? fmt.pct(out[a] / total * 100) : '—'}</td>
+        <td class="cell-in"><span class="sr-only" id="rc-${i}-up-lbl">${esc(`${name} · ${RCL.uptake}`)}</span>${pick}</td></tr>${custom}`;
+    }).join('') + (none ? `<tr><th scope="row" class="rowh">${esc(RCL.noArchetype)}</th><td class="num">${fmt.int(none)}</td><td class="num">${total > 0 ? fmt.pct(none / total * 100) : '—'}</td><td></td></tr>` : '');
+    const errs = Object.keys(err).filter(p => p !== 'responseCurve.customSourceNote').map(p => err[p]);
+    const noteErr = err['responseCurve.customSourceNote'] || '';
+    const note = anyCustom ? `<div class="field mt8" id="rc-note-field"><label class="lbl${noteErr ? ' is-invalid' : ''}" for="rc-note" id="rc-note-lbl">${esc(RCL.sourceNote)}</label>
+        <textarea class="input ta${noteErr ? ' is-invalid' : ''}" id="rc-note" data-rc-note="1" rows="2" aria-required="true" aria-describedby="rc-note-hint" ${noteErr ? 'aria-invalid="true"' : ''} ${ro ? 'disabled' : ''}>${esc(rc.customSourceNote)}</textarea>
+        ${noteErr ? `<div class="err" id="rc-note-hint">${esc(noteErr)}</div>` : `<div class="hint" id="rc-note-hint">${esc(RCL.sourceNoteHelp)}</div>`}</div>` : '';
+    const adv = disclosure({ id: 'rc-adv', act: 'toggleCurveAdv', open: !!state.ui.curveAdvOpen, label: RCL.advanced,
+      body: `<p class="hint mb8">${esc(RCL.advancedHint)}</p><div class="grid-wrap" tabindex="0" role="region" aria-label="${esc(RCL.advanced)}"><table class="grid-t" id="rc-adv-table"><thead><tr><th scope="col">${esc(RCL.archetype)}</th><th scope="col">${esc(RCL.preset)}</th>${RC_PARAMS.map(k => `<th scope="col" class="num">${esc(RCL[k])}</th>`).join('')}<th scope="col" class="num">${esc(RCL.halfOfPeak)}</th></tr></thead>
+        <tbody>${ids.map((a, i) => { const p = r.curveParams[a]; return `<tr><th scope="row" class="rowh">${esc(rcName(a))}</th><td>${esc(uptakeLabel(asg[a]))}</td>${RC_PARAMS.map(k => `<td class="num" id="rc-adv-${i}-${k}">${p ? rawNum(p[k]) : '—'}</td>`).join('')}<td class="num" id="rc-adv-${i}-half">${curveOk(p) ? fmt.num(halfAt(p), 2) : '—'}</td></tr>`; }).join('')}</tbody></table></div>` });
+    return `<div class="curve-blk" id="curve-params"><h3 class="sub-h" id="rc-h">${esc(RCL.uptakeByArchetype)}${rq('FR-44 (proposed)')}${rq('FR-45 (proposed)')}${rq('FR-47 (proposed)')}</h3>
+      <p class="hint">${esc(RCL.uptakeHint)}</p>${vo ? `<p class="hint">${esc(RCL.valueOnlyRowHint)}</p>` : ''}
+      <div class="curve-split"><div><div class="grid-wrap"><table class="grid-t curve-t" id="rc-table" aria-labelledby="rc-h"><thead><tr><th scope="col">${esc(RCL.archetype)}</th><th scope="col" class="num">${esc(cap(grainMany(g)))}</th><th scope="col" class="num">${esc(RCL.share)}</th><th scope="col">${esc(RCL.uptake)}</th></tr></thead>
+        <tbody>${rows}</tbody><tfoot><tr><th scope="row" class="rowh">${esc(RCL.total)}</th><td class="num">${fmt.int(total)}</td><td></td><td></td></tr></tfoot></table></div>
+        ${ids.some(a => !asg[a]) ? `<p class="hint">${esc(RCL.notAssignedHelp)}</p>` : ''}${anyCustom ? `<p class="hint">${esc(RCL.customHint)}</p>` : ''}
+        ${errs.length ? `<div class="err" role="alert" id="rc-errors"><ul class="plain">${errs.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+        ${note}</div>
+        <div class="curve-plot" id="curve-plot" aria-live="polite">${curvePlotSvg(r)}${curveLegend(r)}</div></div>
+      <div class="mt16">${adv}</div></div>`;
+  }
+  /* Uptake change for one archetype: one audit row (old → new). Switching to Custom starts from the previous preset's values. */
+  function rcAssign(a, v) {
+    if (readOnly() || method() !== 'response') return;
+    const rc = state.responseCurve, from = (ownKey(rc.assignment, a) && rc.assignment[a]) || null;
+    if (v === from) return;
+    if (v === RC_CUSTOM ? rcFlags().allowCustomCurve === false : !rcPresets().some(p => p.id === v)) return;
+    if (v === RC_CUSTOM && !rc.custom[a]) { const p = rcPresets().find(x => x.id === from); rc.custom[a] = p ? { delta: p.delta, gamma: p.gamma, rho: p.rho } : { delta: null, gamma: null, rho: null }; }
+    rc.assignment[a] = v;
+    audit('assumption', RCL.audit.uptakeChange(rcName(a), from ? uptakeLabel(from) : RCL.audit.blank, uptakeLabel(v)));
+  }
+  /* Custom δ/γ/ρ and the source note: the store updates as you type (chart live); the audit row is written on commit. */
+  const rcText = v => (v === '' || v == null ? RCL.audit.blank : v);
+  /* What was typed into a Custom value that is not a number, so it stays visible (with its error) after a re-render. */
+  const rcRawKey = (a, k) => `${a}\u0000${k}`;
+  const rcRawOf = (a, k) => { const v = (state.ui.rcRaw || {})[rcRawKey(a, k)]; return v === undefined ? null : v; };
+  const rcFmtOf = (a, k) => (state.ui.rcFmt || {})[rcRawKey(a, k)] || null;
+  /* Fix 1: Custom δ/γ/ρ follow the configurator's plain-decimal rule (FSConfigurator.DECIMAL): only the ends are trimmed;
+     digits with an optional decimal point; commas, inner spaces, exponents, hex and signs are rejected with the P3 messages.
+     Blank is null (reported as "must be a number above 0"); the app's general parseNum is unchanged for every other field. */
+  const RC_DECIMAL = (W.FSConfigurator && W.FSConfigurator.DECIMAL) || /^(\d+(\.\d*)?|\.\d+)$/;
+  function rcDecimal(raw, k) {
+    const t = String(raw == null ? '' : raw).trim();
+    if (t === '') return { value: null };
+    if (t.includes(',')) return { value: NaN, error: RCL.presetValueComma(RCL[k]) };
+    if (!RC_DECIMAL.test(t)) return { value: NaN, error: RCL.presetValuePlainDecimal(RCL[k]) };
+    return { value: Number(t) };
+  }
+  function rcInput(el) {
+    if (readOnly()) return;
+    const rc = state.responseCurve;
+    if (el.dataset.rcNote) { rc.customSourceNote = el.value; return; }
+    const a = curveArchetypes()[+el.dataset.rcArch], k = el.dataset.rcParam;
+    if (a == null || !RC_PARAMS.includes(k)) return;
+    const p = rcDecimal(el.value, k), raw = state.ui.rcRaw || (state.ui.rcRaw = {}), fe = state.ui.rcFmt || (state.ui.rcFmt = {});
+    (rc.custom[a] = rc.custom[a] || {})[k] = p.value;
+    if (p.error) { raw[rcRawKey(a, k)] = el.value; fe[rcRawKey(a, k)] = p.error; } else { delete raw[rcRawKey(a, k)]; delete fe[rcRawKey(a, k)]; }
+    refreshCurve();
+  }
+  function rcCommit(el) {
+    if (readOnly()) return;
+    const orig = el.dataset.orig != null ? el.dataset.orig : '';
+    if (el.value === orig) return;
+    if (el.dataset.rcNote) { audit('assumption', RCL.audit.sourceNote(rcText(orig), rcText(el.value))); return; }
+    const a = curveArchetypes()[+el.dataset.rcArch], k = el.dataset.rcParam;
+    if (a == null || !RC_PARAMS.includes(k)) return;
+    audit('assumption', RCL.audit.customValue(rcName(a), RCL[k], rcText(orig), rcText(el.value)));
+    el.dataset.orig = el.value;
+  }
+  /* Sample loads seed the uptake from FSSample.responseCurveSeed(kind); an empty seed takes the configuration's default
+     assignment for the archetypes in the data. New data (import, AI adoption) keeps the project's choices and fills only
+     the archetypes with no uptake yet from the default assignment; others stay unassigned (no hidden default). */
+  function fillDefaultUptake() {
+    const rc = state.responseCurve, da = (state.config && state.config.defaultAssignment) || {};
+    dataArchetypes().forEach(a => { if (!(ownKey(rc.assignment, a) && rc.assignment[a]) && ownKey(da, a) && da[a]) rc.assignment[a] = da[a]; });
+  }
+  function seedResponseCurve(kind) {
+    const s = SAMPLE && SAMPLE.responseCurveSeed ? SAMPLE.responseCurveSeed(kind) : null;
+    state.responseCurve = Object.assign(blankResponseCurve(), s ? clone(s) : {});
+    state.ui.rcRaw = {}; state.ui.rcFmt = {};
+    if (!Object.keys(state.responseCurve.assignment).length) fillDefaultUptake();
+  }
+  /* §6.4: a snapshot's uptake per archetype (from the inputs it was calculated with), Custom with its source note, and the
+     configuration version. null for a non-response snapshot. */
+  /* The archetypes a snapshot's inputs carry (entity rows, else segment mixes / single archetypes), reference ones first. */
+  function inputArchetypes(i) {
+    const seen = [];
+    if (Array.isArray(i.entities) && i.entities.length) i.entities.forEach(e => addArch(seen, e && e.archetype));
+    else (i.segments || []).forEach(x => { if (x && x.archetypeMix) Object.keys(x.archetypeMix).forEach(a => addArch(seen, a)); else if (x) addArch(seen, x.archetype); });
+    return refFirst(seen);
+  }
+  const sameCurve = (p, q) => !!p && !!q && RC_PARAMS.every(k => p[k] === q[k]);
+  /* How a snapshot's archetype got its curve: preset label, Custom with its note, or (an earlier draft without uptake
+     choices, F5) the reference curve or an edited curve. */
+  function curveSourceText(o, a) {
+    const p = (o.curveProvenance || {})[a];
+    if (p) return p.source === 'custom' ? RCL.customWithNote(o.customSourceNote || '') : p.label || p.presetId;
+    return sameCurve(E.archetypesFor(o)[a], E.ARCHETYPES[a]) ? RCL.referenceCurve : RCL.editedCurve;
+  }
+  const snapArchetypes = i => { const o = i.methodAssumptions || {}, ids = inputArchetypes(i); Object.keys(o.curveParams || {}).forEach(a => addArch(ids, a)); return ids; };
+  /* §6.4: a snapshot's uptake per archetype (from the inputs it was calculated with) and the configuration version. null for
+     a non-response snapshot. */
+  function uptakeSummary(s) {
+    const i = s.inputs || {}, o = i.methodAssumptions || {};
+    if (i.method !== 'response') return null;
+    const lines = snapArchetypes(i).map(id => RCL.curveLegendPreset(rcName(id), curveSourceText(o, id)));
+    if (s.responseCurveConfig && isNum(s.responseCurveConfig.version)) lines.push(RCL.configVersionText(s.responseCurveConfig.version));
+    return lines;
+  }
+  /* F1 (fix 2): an earlier draft saved without an uptake (no snapshot.responseCurve). Archetypes whose stored curve is the
+     engine's reference curve stay on the reference path (no uptake, exactly as before). Any other stored curve becomes a
+     Custom assignment with the effective δ/γ/ρ the engine used (missing values from the reference) and the FSFields
+     carry-over note; a stored preset provenance whose preset still has the same values is kept as that preset. */
+  function legacyResponseCurve(o) {
+    const rc = blankResponseCurve(), A = E.archetypesFor(o), pv = o.curveProvenance || {};
+    const cp = o.curveParams && typeof o.curveParams === 'object' && !Array.isArray(o.curveParams) ? o.curveParams : {};
+    Object.keys(cp).forEach(a => {
+      const eff = A[a], p = pv[a];
+      if (!eff) return;
+      if (!p && sameCurve(eff, E.ARCHETYPES[a])) return;
+      const preset = p && p.source === 'preset' ? rcPresets().find(x => x.id === p.presetId) : null;
+      if (preset && sameCurve(preset, eff)) { rc.assignment[a] = preset.id; return; }
+      rc.assignment[a] = RC_CUSTOM; rc.custom[a] = { delta: eff.delta, gamma: eff.gamma, rho: eff.rho };
+    });
+    if (Object.keys(rc.assignment).some(a => rc.assignment[a] === RC_CUSTOM))
+      rc.customSourceNote = typeof o.customSourceNote === 'string' && o.customSourceNote.trim() ? o.customSourceNote : RCL.carriedOverNote;
+    return rc;
   }
   const CS7_TEXT = 'Response Curve needs behavioural response curves: a curve archetype for each HCP or segment, supplied with the Segmentation & Targeting data. Value-only segmentation is not yet supported for Response Curve, and no default curve is assumed. Use Affordable Coverage for value-only segmentation.';
-  const respValueOnly = () => method() === 'response' && state.respSegType === 'value';
   /* CS-2 / CS-5: reallocation is the one remaining methodology choice, shown with the main assumptions (Affordable, Response). */
   function reallocControl() {
     const o = ma();
@@ -6284,7 +7428,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       segType = `${radioGroup({ name: 'segType', label: 'Segmentation type', value: state.respSegType, onAct: 'segType', describe: true, inline: true, options: [
           { value: 'value', label: 'Value only', desc: 'Deciles by value, no behavioural dimension.' },
           { value: 'behaviour', label: 'Value + behaviour', desc: 'Value deciles plus curve archetypes with their response curves.' }] })}
-        ${respValueOnly() ? msg('warning', esc(CS7_TEXT), { title: 'Response Curve needs behavioural curves', id: 'cs7-msg' }) : archetypeSummary() + curveBlock()}<div class="sep"></div>`;
+        ${valueOnlyBlocked() ? msg('warning', esc(CS7_TEXT), { title: 'Response Curve needs behavioural curves', id: 'cs7-msg' }) : uptakeSection()}<div class="sep"></div>`;
     }
     const realloc = '<div class="sep"></div>' + reallocControl();
     return card({ id: 'c-method-a', title: `Method-specific: ${methodLabel(m)}`, sub: esc(F.METHODS[m].question), body: segType + valueBlock() + '<div class="sep"></div>' + alloc + '<div class="sep"></div>' + specific + realloc });
@@ -6331,7 +7475,9 @@ abbr[title] { text-decoration: none; cursor: help; }
       chk(o.reachAppliesTo && o.reachAppliesTo !== DEFAULTS.reachAppliesTo, OL('reachAppliesTo')[o.reachAppliesTo]);
       chk(o.maxCallsSource && o.maxCallsSource !== DEFAULTS.maxCallsSource, OL('maxCallsSource')[o.maxCallsSource]);
       /* 2026-10-12: edited response curve parameters are a non-default assumption. */
-      const ce = Object.keys(o.curveParams || {}).filter(a => { const r = E && E.ARCHETYPES && E.ARCHETYPES[a], u = o.curveParams[a] || {}; return r && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); });
+      /* P4: only an older draft's provenance-less curve edits; an uptake preset or a Custom curve is an assumption, shown with the uptake. */
+      const pvs = o.curveProvenance || {};
+      const ce = Object.keys(o.curveParams || {}).filter(a => { const r = E && E.ARCHETYPES && E.ARCHETYPES[a], u = o.curveParams[a] || {}; return r && !pvs[a] && ((isNum(u.gamma) && u.gamma !== r.gamma) || (isNum(u.rho) && u.rho !== r.rho)); });
       chk(ce.length, `Curve parameters edited (${ce.join(', ')})`);
     }
     return out;
@@ -6399,7 +7545,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const aiWait = aiPendingCount();
     if (aiWait) issues.push({ where: 'AI values', message: `${plural(aiWait, 'AI value')} still pending. Accept, edit or reject each one first.` });
     const inp = buildInputs();
-    if (respValueOnly()) issues.push({ where: 'Segmentation type', message: CS7_TEXT, target: 'c-method-a' });
+    if (valueOnlyBlocked()) issues.push({ where: 'Segmentation type', message: CS7_TEXT, target: 'c-method-a' });
     if (valueMode() === 'chain' && method() !== 'workload' && !isNum(ma().value.sizingStartYear)) issues.push({ where: 'Sizing start year', message: 'Enter the sizing start year; no default is assumed.', path: 'methodAssumptions.value.sizingStartYear', target: 'v-start' });
     const mine = new Set();
     state.segments.forEach((s, i) => visibleFields().filter(f => f.owner === 'sizing').forEach(f => {
@@ -6407,9 +7553,16 @@ abbr[title] { text-decoration: none; cursor: help; }
       const e = s[f.id] == null ? `${lbl} is required` : liveCellError(s, f.id);
       if (e) { issues.push({ where: `Segment ${s.segment} · ${lbl}`, message: e, path }); mine.add(path); }
     }));
+    /* P4: uptake per archetype, against its row. The engine's custom-curve and source-note errors are the same rules (shown
+       once, from the row); its unknown-archetype / value-only errors restate a missing uptake already listed here. */
+    const cIss = curveIssues();
+    cIss.forEach(x => { issues.push({ where: x.where, message: x.message, path: x.path, target: x.target }); mine.add(x.path); });
+    const rowCovered = cIss.some(x => x.unassigned || /^responseCurve\.assignment\./.test(x.path));
+    const covered = e => method() === 'response' && (e.code === 'custom-curve-invalid' || e.code === 'custom-source-missing'
+      || (rowCovered && (e.code === 'unknown-archetype' || (e.code === 'response-needs-entity-or-mix' && valueOnlyRuns()) || mixTotalFromUptake(e))));
     const v = safe(() => E.validate(inp), { errors: [{ code: 'engine', path: '', message: 'Validation is unavailable.' }], warnings: [] });
     /* F5: forecast-split errors carry raw amounts in the engine's text; they are reworded with the app's currency formatter. */
-    v.errors.filter(e => !mine.has(e.path)).forEach(e => issues.push({ where: issueWhere(e), message: engineErrText(e), path: e.path }));
+    v.errors.filter(e => !mine.has(e.path) && !covered(e)).forEach(e => issues.push({ where: issueWhere(e), message: engineErrText(e), path: e.path }));
     const at = nowIso();
     state.checkRuns.assumptions = { at, issues, warnings: v.warnings };
     if (!issues.length) { state.checkpoints.assumptions = { sig: assumptionsSig(), at }; audit('checkpoint', 'Assumptions check passed'); }
@@ -6537,7 +7690,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   function resFilterCard(r) {
     const sps = resSpecs(r);
     if (!sps.length) return '';
-    /* 2026-10-12 review (Kunal): FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
+    /* 2026-10-12 SME review: FTE by decile, one tab per specialty. The decile view already existed behind these tabs; the
        label and hint now say so, and each specialty row in the roll-up links to its tab. */
     return card({ id: 'c-resfilter', body: `<p class="lbl mb8">FTE by decile: pick a specialty</p>${specTabs('res-spec', 'resSpec', resSpec(r), sps, 'FTE by decile: pick a specialty')}
       <p class="hint mt8">All specialties shows one row per specialty. Each specialty tab shows its FTE and calls by decile, with the same columns. The tab also filters Why this result and the calculation trace. Totals, the field size and ROI are model-wide; the ROI cutoff is one value for the whole model.</p>` });
@@ -6688,7 +7841,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (stageStatus('result') === 'locked') return lockedView('result');
     const r = state.result, current = resultIsCurrent();
     const asOk = stageStatus('assumptions') === 'complete';
-    const reason = readOnly() ? 'Read-only role' : respValueOnly() ? 'Response Curve needs value + behaviour segmentation (see Model Assumptions)' : !asOk ? 'Pass the assumptions check on Model Assumptions first' : '';
+    const reason = readOnly() ? 'Read-only role' : valueOnlyBlocked() ? 'Response Curve needs value + behaviour segmentation (see Model Assumptions)' : !asOk ? 'Pass the assumptions check on Model Assumptions first' : '';
     const calcBtn = btn({ label: r ? 'Recalculate' : 'Calculate FTE', act: 'calculate', kind: 'primary', ic: r ? 'refresh' : 'calc', id: 'calc', reason });
     let top = card({ id: 'c-calc', title: 'Calculation', sub: `Deterministic: the same inputs always give the same field size. Method: ${esc(methodLabel(method()))}.`, actions: calcBtn,
       body: !r ? `<p class="muted">Nothing calculated yet. Calculate to see the field size and how it was reached.</p>` : `<p class="muted">Last calculated ${fmtTime(state.resultAt)} with ${esc(r.engineVersion)}.</p>` });
@@ -6743,7 +7896,7 @@ abbr[title] { text-decoration: none; cursor: help; }
      roll-ups), then average calls per reached HCP by decile per scenario. The earlier long comparison stays under Scenario detail. */
   const capText = sh => (sh.capacityInput && sh.capacityInput.mode === 'derived' ? `${fmt.int(sh.capacityInput.workingDays)} days × ${fmt.num1(sh.capacityInput.callsPerDay)} calls/day` : `${fmt.int(sh.capacity)} calls (entered)`);
   const reallocText = s => (s.inputs.method === 'workload' ? 'Not applicable' : (s.inputs.methodAssumptions || {}).reallocateExcluded === true ? 'Reallocated to covered segments' : 'Forfeited');
-  /* 2026-10-12 review (Melissa): top drivers live here, side by side, so their effect is read across scenarios rather than
+  /* 2026-10-12 SME review: top drivers live here, side by side, so their effect is read across scenarios rather than
      on one FTE page. Values are the engine's drivers for each snapshot; a value that differs from the first scenario is highlighted. */
   function driverRows(list) {
     const keyOf = (d, s) => driverLabel(d, s.result);
@@ -6757,8 +7910,8 @@ abbr[title] { text-decoration: none; cursor: help; }
       return [k, s => { const v = valOf(s, k); return list.length > 1 && v !== base ? `<span class="cmp-diff">${v}</span>` : v; }, eff];
     }));
   }
-  /* 2026-10-12 review (Kunal): the comparison shows key assumptions only; "View all" opens every assumption the snapshot
-     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending Kunal's list. */
+  /* 2026-10-12 SME review: the comparison shows key assumptions only; "View all" opens every assumption the snapshot
+     was calculated with (read-only, from the saved inputs). Which assumptions stay in the table is pending the SME's list. */
   function allAssumptionsHtml(sc) {
     const i = sc.inputs, sh = i.shared || {}, o = i.methodAssumptions || {}, g = state.project.grain, m = i.method;
     const row = (k, v) => `<tr><th scope="row" class="rowh">${esc(k)}</th><td>${v}</td></tr>`;
@@ -6788,8 +7941,12 @@ abbr[title] { text-decoration: none; cursor: help; }
     const fc = m !== 'workload' && Array.isArray(v.years) && v.years.length ? `<h3 class="sub-h">Brand forecast and value build-up</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">Year</th><th scope="col" class="num">Brand forecast</th><th scope="col" class="num">Carryover into year</th><th scope="col" class="num">Other channels</th><th scope="col" class="num">${esc(IMP_LABEL)} (entered)</th></tr></thead><tbody>${v.years.map(y => `<tr><th scope="row" class="rowh">${esc(String(y.year))}</th><td class="num">${fmt.money(y.forecast)}</td><td class="num">${fmt.pct(y.carryoverPct)}</td><td class="num">${fmt.pct(y.otherChannelPct)}</td><td class="num">${isNum(y.sfPct) ? fmt.pct(y.sfPct) : '<span class="muted">blank</span>'}</td></tr>`).join('')}</tbody></table></div>` : '';
     let curves = '';
     if (m === 'response' && E && E.archetypesFor) {
-      const A = E.archetypesFor(o), R = E.ARCHETYPES;
-      curves = `<h3 class="sub-h">Response curve parameters</h3><div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">Curve archetype</th><th scope="col" class="num">Shape (γ)</th><th scope="col" class="num">Saturation (ρ)</th><th scope="col" class="num">Reference γ / ρ</th></tr></thead><tbody>${Object.keys(A).map(a => `<tr><th scope="row" class="rowh">${esc(a)}</th><td class="num">${fmt.num1(A[a].gamma)}</td><td class="num">${fmt.num1(A[a].rho)}</td><td class="num muted">${esc(String(R[a].gamma))} / ${esc(String(R[a].rho))}</td></tr>`).join('')}</tbody></table></div>`;
+      /* P4 (§6.4): uptake per archetype with the effective δ/γ/ρ (archetypes from the snapshot's curves; an older snapshot
+         without curves used the reference curves) and the configuration version. */
+      const A = E.archetypesFor(o), list = snapArchetypes(i);
+      const cfgV = sc.responseCurveConfig && isNum(sc.responseCurveConfig.version) ? `<p class="muted">${esc(RCL.configVersionText(sc.responseCurveConfig.version))}</p>` : '';
+      curves = `<h3 class="sub-h">${esc(RCL.summaryHeading)}</h3>${cfgV}<div class="grid-wrap"><table class="grid-t"><thead><tr><th scope="col">${esc(RCL.archetype)}</th><th scope="col">${esc(RCL.preset)}</th>${RC_PARAMS.map(k => `<th scope="col" class="num">${esc(RCL[k])}</th>`).join('')}<th scope="col" class="num">${esc(RCL.halfOfPeak)}</th></tr></thead><tbody>${list.map(a => { const c = A[a] || {};
+        return `<tr><th scope="row" class="rowh">${esc(rcName(a))}</th><td>${esc(curveSourceText(o, a))}</td>${RC_PARAMS.map(k => `<td class="num">${esc(rawNum(c[k]))}</td>`).join('')}<td class="num">${curveOk(c) ? fmt.num(halfAt(c), 2) : '—'}</td></tr>`; }).join('')}</tbody></table></div>`;
     }
     const segs = i.segments || [];
     const sc2 = m === 'workload' ? [['reachPct', 'Reach %', x => fmt.pct(x)], ['plannedCalls', 'Planned calls', x => fmt.int(x)]]
@@ -6828,6 +7985,8 @@ abbr[title] { text-decoration: none; cursor: help; }
     ];
     /* Origin row only when an AI-proposed snapshot exists, so an AI-free comparison is unchanged. */
     if (list.some(s => s.ai)) rows.splice(1, 0, ['Origin', s => esc(aiOriginText(s))]);
+    /* P4 (§6.4): uptake per archetype (Custom with its source note) and the configuration version, when a Response Curve snapshot is compared. */
+    if (list.some(s => s.inputs.method === 'response')) rows.splice(rows.findIndex(r => r[0] === 'All assumptions'), 0, [RCL.summaryHeading, s => { const l = uptakeSummary(s); return !l ? esc(RCL.notApplicable) : l.length ? l.map(esc).join('<br>') : '—'; }]);
     const n = list.length + 1;
     const head = list.map(s => `<th scope="col" class="cmp-col"><span class="cmp-name">${esc(s.name)}</span><span class="cmp-meta">${esc(s.id)} · v${s.version}${s.parentId ? ` · from ${esc(s.parentId)}` : ''}</span></th>`).join('');
     const body = rows.map(([k, fn, tip]) => (fn ? `<tr><th scope="row" class="rowh"${tip ? ` title="${esc(tip)}"` : ''}>${esc(k)}</th>${list.map(s => `<td>${fn(s)}</td>`).join('')}</tr>` : `<tr class="cmp-sec"><th scope="colgroup" colspan="${n}">${esc(k)}</th></tr>`)).join('');
@@ -6917,6 +8076,7 @@ abbr[title] { text-decoration: none; cursor: help; }
           ${i.method === 'affordable' ? kv('Total ROI cutoff', fmt.num(o.totalRoiCutoff, 2)) : ''}
           ${i.method !== 'workload' ? kv('Value from excluded segments', esc(reallocText(s))) : ''}
           ${o.value && Array.isArray(o.value.years) ? kv('Forecast inputs', esc(fcInputsText(o.value))) : ''}
+          ${i.method === 'response' ? kv(RCL.summaryHeading, (uptakeSummary(s) || []).map(esc).join('<br>') || '—') : ''}
           ${kv('Capacity', esc(capText(i.shared)))}${kv('Cost', i.shared.repCost == null ? 'Not supplied' : esc(F.OPTION_LABELS.costMode[i.shared.costMode]))}
           ${kv('Methodology', nd.length ? `${nonDefaultChip(nd)} ${esc(nd.join('; '))}` : 'Standard method')}</dl>
         <dl class="kvs"><div class="kvs-h">Data and notes</div>
@@ -6955,10 +8115,47 @@ abbr[title] { text-decoration: none; cursor: help; }
       : msg('neutral', 'No scenario is marked as recommended yet. Review works on the recommended snapshot, never on the working model.', { title: 'Nothing to review', actions: btn({ label: 'Go to Scenario Summary', act: 'nav', arg: 'scenarios', kind: 'primary', id: 'rv-go' }) });
     const panel = `<div role="tabpanel" id="panel-${tab}" aria-labelledby="tab-${tab}" tabindex="0" class="tabpanel">${tab === 'summary' ? summary : auditTable()}</div>`;
     const exp = card({ id: 'c-export', title: 'Export to Excel', sub: 'A multi-sheet workbook with assumptions, source and mapping, segment detail, scenario comparison and the audit record, with live formulas.',
-      actions: btn({ label: 'Export workbook', act: 'export', kind: 'primary', ic: 'download', id: 'export', reason: !focus ? 'Save a scenario first' : '' }),
+      actions: rq('FR-48 (proposed)') + btn({ label: 'Export workbook', act: 'export', kind: 'primary', ic: 'download', id: 'export', reason: !focus ? 'Save a scenario first' : '' }),
       body: focus ? `<p class="muted">Exports <strong>${esc(focus.name)}</strong> ${rec ? '(the recommended snapshot)' : '(latest snapshot; none is recommended yet)'} together with all ${plural(state.scenarios.length, 'scenario')} and the audit trail, as <span class="mono">field-sizing-${esc(slug(focus.name))}.xlsx</span>. ${focus.status === 'approved' ? '' : `Status in the workbook: ${esc(STATUS[focus.status].label)}.`}</p>` : '' });
     return roleCard + card({ id: 'c-review', body: tablist + panel }) + aiReviewerCard(rec) + exp;
   };
+
+  /* ================================================================== response curve configurator (P3, FR-46 proposed)
+     Administrator only: the header button exists only for that role and every entry point re-checks it. The view and the
+     edit rules live in FSConfigurator (src/ui/configurator.js); here: entry, role gating, dispatch, audit and render.
+     Outside the configurator the Administrator stays read-only (readOnly() is unchanged). */
+  const CFG = W.FSConfigurator;
+  const canConfigure = () => state.role === 'admin' && !!CFG;
+  function configButton() {
+    if (!canConfigure()) return '';
+    /* The visible text hides at narrow widths (head.html .ab-cfg); the aria-label keeps the same accessible name. */
+    return `<button type="button" class="btn btn-outline btn-sm ab-cfg" id="open-config" data-act="openConfig" aria-haspopup="dialog" aria-label="${esc(RCL.configuratorOpen)}">${icon('settings')}<span class="ab-cfg-lbl">${esc(RCL.configuratorOpen)}</span></button>`;
+  }
+  function configRefused() { if (state.dialog && state.dialog.type === 'config') closeDialog(); toast(RCL.configuratorAdminOnly, 'error'); }
+  function configRun(cmd, value, focusId) {
+    const d = state.dialog;
+    if (!canConfigure() || !d || d.type !== 'config') { configRefused(); return; }
+    const r = CFG.command(state.config, d.ui, cmd, value, { user: curUser().name, at: nowIso() });
+    r.changes.forEach(c => audit('config', c));
+    focusAfter(r.focus || focusId || null);
+  }
+  function configChange(el) {
+    const cmd = el.dataset.cfg;
+    configRun(cmd, el.type === 'checkbox' ? el.checked : el.value, null);   // focus stays wherever Tab or the pointer moved it
+    renderSoon();
+  }
+  Object.assign(acts, {
+    openConfig: el => {
+      if (!canConfigure()) { configRefused(); return; }
+      openDialog({ type: 'config', ui: CFG.blankUi('presets'), returnFocus: (el && el.id) || 'open-config' });
+    },
+    cfg: el => {
+      const arg = el.dataset.arg || '';
+      const name = arg === 'add' ? document.getElementById('cfg-new-name') : null;
+      configRun(arg, name ? name.value : undefined, el.id);
+      render();
+    }
+  });
 
   /* ================================================================== dialogs */
   function openDialog(d) { d.returnFocus = d.returnFocus || (document.activeElement && document.activeElement.id) || null; state.dialog = d; render(); }
@@ -6977,7 +8174,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   function dialogHtml() {
     const d = state.dialog;
     if (!d) return '';
-    let title = '', body = '', foot = '', wide = false;
+    let title = '', titleHtml = '', body = '', foot = '', wide = false, style = '';
     const cancel = btn({ label: 'Cancel', act: 'dlgCancel', kind: 'outline', id: 'dlg-cancel' });
     if (d.type === 'methodChange') {
       const from = method(), to = d.to, x = methodDiff(from, to);
@@ -7030,16 +8227,21 @@ abbr[title] { text-decoration: none; cursor: help; }
     } else if (d.type === 'aiEdit') {
       const x = aiEditDialog(d); title = x.title; body = x.body;
       foot = cancel + btn({ label: 'Accept your value', act: 'dlgConfirm', kind: 'primary', id: 'dlg-ok' });
+    } else if (d.type === 'config') {
+      if (!canConfigure()) return '';
+      titleHtml = esc(RCL.configuratorTitle) + rq('FR-46 (proposed)'); wide = true; style = 'width:min(920px, calc(100vw - 24px))';
+      body = CFG.view(state.config, d.ui, { icon, fmtTime });
+      foot = btn({ label: RCL.configuratorClose, act: 'dlgCancel', kind: 'primary', id: 'cfg-close' });
     }
     return `<div class="overlay" data-act="dlgCancel" aria-hidden="true"></div>
-      <div class="dialog${wide ? ' dialog-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dlg-title" id="dlg">
-        <div class="dlg-title"><h2 id="dlg-title">${esc(title)}</h2><button type="button" class="ibtn dlg-x" id="dlg-x" data-act="dlgCancel" aria-label="Close dialog">${icon('x')}</button></div>
+      <div class="dialog${wide ? ' dialog-wide' : ''}" role="dialog" aria-modal="true" aria-labelledby="dlg-title" id="dlg"${style ? ` style="${style}"` : ''}>
+        <div class="dlg-title"><h2 id="dlg-title">${titleHtml || esc(title)}</h2><button type="button" class="ibtn dlg-x" id="dlg-x" data-act="dlgCancel" aria-label="Close dialog">${icon('x')}</button></div>
         <div class="dlg-body">${body}</div><div class="dlg-foot">${foot}</div></div>`;
   }
   function setupDialogFocus() {
     const dlg = document.getElementById('dlg');
     if (!dlg || dlg.contains(document.activeElement)) return;
-    const first = dlg.querySelector('.dlg-body input, .dlg-body textarea') || dlg.querySelector('#dlg-ok');
+    const first = (state.dialog && state.dialog.type === 'config' ? dlg.querySelector('[role=tab][aria-selected=true]') : dlg.querySelector('.dlg-body input, .dlg-body textarea')) || dlg.querySelector('#dlg-ok');
     if (first) first.focus();
   }
   function dialogConfirm() {
@@ -7168,7 +8370,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     
   }
   function mergedSampleRows(kind) {
-    const src = kind === 'multi' && SAMPLE.multiSpecialty ? SAMPLE.multiSpecialty : SAMPLE;
+    const src = kind === 'multi' && SAMPLE.multiSpecialty ? SAMPLE.multiSpecialty : kind === 'presets' && SAMPLE.presetSample ? SAMPLE.presetSample : SAMPLE;
     const a = src.segments('affordable'), w = src.segments('workload'), r = src.segments('response');
     return a.map((s, i) => Object.assign({}, s, { plannedCalls: w[i].plannedCalls, archetypeMix: r[i].archetypeMix }));
   }
@@ -7183,17 +8385,30 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (state.segments.length) openDialog({ type: 'replace', then: () => { then(); render(); } });
     else { then(); render(); }
   }
+  /* Uptake presets sample (P2): third Step 1 button; strings from FSFields.RESPONSE_CURVE_LABELS (RCL). */
+  const RCL = (F && F.RESPONSE_CURVE_LABELS) || {};
+  const presetSampleBtn = () => (SAMPLE && SAMPLE.presetSample ? btn({ label: RCL.samplePresetsButton, act: 'loadSamplePresets', kind: 'text', ic: 'file', id: 'load-sample-presets' }) : '');
   function loadSampleProject(kind) {
-    const multi = kind === 'multi' && !!SAMPLE.multiSpecialty;
-    const p = clone(multi ? SAMPLE.multiSpecialty.project : SAMPLE.project);
-    state.project = Object.assign(blankProject(), p, { method: 'affordable' });
+    /* One loader for the three synthetic samples ('multi', 'presets', else the single 10-decile sample). The response curve
+       uptake is seeded per sample (FSSample.responseCurveSeed) and resolved from state.config at build time (I-2, I-4). */
+    const multi = kind === 'multi' && !!SAMPLE.multiSpecialty, presets = kind === 'presets' && !!SAMPLE.presetSample;
+    const src = multi ? SAMPLE.multiSpecialty : presets ? SAMPLE.presetSample : SAMPLE;
+    state.project = Object.assign(blankProject(), clone(src.project), { method: 'affordable' });
     state.shared = Object.assign(blankShared(), SAMPLE.shared()); state.repCostByMode = {};
     if (SAMPLE.capacityInput) { state.shared.capacityInput = SAMPLE.capacityInput(); state.shared.capacity = null; }   // CS-5: days × calls per day
     aiClearStores();   // F-R2-10: the sample rewrites every store below; nothing AI-written may survive in them
     const md = methodDefaults();
     METHOD_IDS.forEach(m => { state.methodStore[m] = Object.assign(md[m], SAMPLE.methodAssumptions(m)); if (state.methodStore[m].value) state.methodStore[m].value = Object.assign(blankValue(), SAMPLE.methodAssumptions(m).value); });
     state.ui.sizeSpec = null; state.ui.resSpec = null; state.ui.dataSpec = null; state.respSegType = 'behaviour';
+    if (presets) {
+      setManualData(mergedSampleRows('presets'), RCL.samplePresetsData);
+      seedResponseCurve('presets');
+      audit('project', RCL.samplePresetsAudit(src.archetypes.length));
+      toast(RCL.samplePresetsToast, 'success');
+      return;
+    }
     setManualData(mergedSampleRows(multi ? 'multi' : null), multi ? 'Synthetic multi-specialty sample data' : 'Synthetic sample data');
+    seedResponseCurve(multi ? 'multi' : 'single');
     audit('project', multi ? `Synthetic multi-specialty sample project loaded (${plural(specialtiesOf().length, 'specialty', 'specialties')} × 10 deciles)` : 'Synthetic sample project loaded');
     toast(multi ? 'Synthetic multi-specialty sample loaded. Run the inputs check to continue.' : 'Synthetic sample project loaded. Run the inputs check to continue.', 'success');
   }
@@ -7204,7 +8419,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (!sheets.length) throw { message: 'The file has no readable sheets.' };
       let best = 0;
       if (typeof IO.rankSheets === 'function') { const rk = safe(() => IO.rankSheets(res, m), null); if (rk && rk.length) { const k = sheets.findIndex(x => x.name === rk[0].name); if (k >= 0) best = k; } }
-      const det = IO.detect(sheets[best], m, { sheets });
+      const det = IO.detect(sheets[best], m, { sheets, archetypes: liveArchetypes() });
       const tabs = Array.isArray(det.tabsAsSpecialties) && det.tabsAsSpecialties.length >= 2 ? det.tabsAsSpecialties.slice() : null;
       state.importFlow = { step: 'source', fileName, sheets, sheetIndex: best, headerRow: det.headerRow, detectedHeader: det.headerRow, inputGrain: det.inputGrain, detectedGrain: det.inputGrain,
         mapping: Object.assign({}, det.mapping), confidence: Object.assign({}, det.confidence || {}), manual: {}, reviewed: false, applied: null, error: null, tabs, tabsOn: !!tabs };
@@ -7217,7 +8432,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
   function wizSetSheet(i) {
     const fl = state.importFlow; fl.sheetIndex = i;
-    const det = IO.detect(fl.sheets[i], method(), { sheets: fl.sheets });
+    const det = IO.detect(fl.sheets[i], method(), { sheets: fl.sheets, archetypes: liveArchetypes() });
     const tabs = Array.isArray(det.tabsAsSpecialties) && det.tabsAsSpecialties.length >= 2 ? det.tabsAsSpecialties.slice() : null;
     Object.assign(fl, { headerRow: det.headerRow, detectedHeader: det.headerRow, inputGrain: det.inputGrain, detectedGrain: det.inputGrain, mapping: Object.assign({}, det.mapping), confidence: Object.assign({}, det.confidence || {}), manual: {}, reviewed: false, applied: null, tabs, tabsOn: !!tabs });
     render();
@@ -7228,7 +8443,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     mappingFieldsFor(method(), fl.inputGrain).forEach(f => { if (fl.mapping[f.id] != null) mapping[f.id] = fl.mapping[f.id]; });
     if (fl.tabsOn) delete mapping.specialty;   // CS-3 tabs mode: the specialty is the sheet name
     const extra = fl.tabsOn && fl.tabs ? { tabsAsSpecialties: true, sheets: fl.tabs.slice(), workbook: { sheets: fl.sheets } } : undefined;
-    fl.applied = safe(() => IO.applyMapping(flowSheet(), { headerRow: fl.headerRow, inputGrain: fl.inputGrain, mapping }, method(), extra), { segments: [], entities: null, errors: [{ code: 'io', path: '', message: 'The import could not be applied.' }], warnings: [], rowCount: 0 });
+    fl.applied = safe(() => IO.applyMapping(flowSheet(), { headerRow: fl.headerRow, inputGrain: fl.inputGrain, mapping, archetypes: liveArchetypes() }, method(), extra), { segments: [], entities: null, errors: [{ code: 'io', path: '', message: 'The import could not be applied.' }], warnings: [], rowCount: 0 });
     fl.usedMapping = mapping;
   }
   function wizImport() {
@@ -7237,6 +8452,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       state.segments = (ap.segments || []).map(r => Object.assign(blankRow(r.segment), r));
       state.entities = ap.entities && ap.entities.length ? ap.entities : null;
       state.inputGrain = fl.inputGrain; state.corrections = [];
+      fillDefaultUptake();   // P4: archetypes new to the project start with the configuration's default uptake, if it has one
       const mapHeads = {}; Object.keys(fl.usedMapping).forEach(k => { mapHeads[k] = heads[fl.usedMapping[k]]; });
       const tabsOn = !!(fl.tabsOn && fl.tabs);
       state.provenance = { path: 'file', fileName: fl.fileName, sheet: tabsOn ? fl.tabs.join(', ') : flowSheet().name, headerRow: fl.headerRow, inputGrain: fl.inputGrain, mapping: mapHeads, importedAt: nowIso(), rowCount: ap.rowCount, warnings: (ap.warnings || []).map(w => w.message) };
@@ -7266,14 +8482,30 @@ abbr[title] { text-decoration: none; cursor: help; }
       state.valueMode[inp.method] = isNum(v.annualValue) ? 'direct' : 'chain';
       const merged = Object.assign(methodDefaults()[inp.method], inp.methodAssumptions);
       merged.value = Object.assign(blankValue(), state.ai.touched[inp.method] ? {} : state.methodStore[inp.method].value, v);   // F-R2-10: no hidden AI-written chain
+      delete merged.curveParams; delete merged.curveProvenance; delete merged.customSourceNote;   // P4: curves come only from the uptake below
       state.methodStore[inp.method] = merged;
     }
+    /* P4 (I-4): the snapshot's configuration and uptake come back with it. An older snapshot without them keeps the current
+       configuration and starts with no uptake: its inputs carry no provenance, so the engine used the reference curves. */
+    if (s.responseCurveConfig) state.config = clone(s.responseCurveConfig);
+    state.responseCurve = Object.assign(blankResponseCurve(), s.responseCurve ? clone(s.responseCurve) : inp.method === 'response' ? legacyResponseCurve(inp.methodAssumptions || {}) : {}); state.ui.rcRaw = {}; state.ui.rcFmt = {};
+    if (inp.method === 'response') state.respSegType = ownKey((inp.methodAssumptions || {}).curveParams, RC_ALL) ? 'value' : 'behaviour';
     state.provenance = clone(s.provenance); state.corrections = clone(s.corrections || []);
     state.parentId = s.id; state.objective = s.objective || state.objective; state.draftName = null;
     state.result = clone(s.result); state.resultInputs = clone(s.inputs); state.resultAt = s.createdAt;
     const at = nowIso();
     state.checkpoints.inputs = { sig: inputsSig(), at }; state.checkpoints.assumptions = { sig: assumptionsSig(), at };
     state.resultSig = assumptionsSig();
+    /* F1 (fix 2) / N1, N4 (fix 3): an earlier draft's result stays current only if the rebuilt inputs reproduce its numbers
+       exactly; then the recalculated result and its inputs are adopted, so the inputs hash, trace and curves match what a
+       save stores. Otherwise, or when the rebuilt uptake needs Custom while custom curves are off, the result is stale and
+       the assumptions check must be run again. */
+    if (!s.responseCurve && inp.method === 'response') {
+      const bi = buildInputs(), re = safe(() => E.calculate(bi), null), key = r => JSON.stringify(r && [r.errors, r.totals, r.segments]);
+      const customOff = customBlocked();
+      if (re && !customOff && key(re) === key(s.result)) { state.result = clone(re); state.resultInputs = clone(bi); }
+      else { state.resultSig = null; if (customOff) state.checkpoints.assumptions = null; }
+    }
     state.checkRuns = { inputs: null, assumptions: null };
     aiAfterClone(s);
     audit('clone', `Cloned “${s.name}” to a new working draft`, s.id);
@@ -7286,6 +8518,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const draft = {
       id: 'SC-' + String(v).padStart(3, '0'), name, version: v, parentId: state.parentId, createdAt: nowIso(), createdBy: curUser().name,
       objective: state.objective, inputs: buildInputs(), result: clone(state.result), provenance: clone(state.provenance), corrections: clone(state.corrections),
+      responseCurveConfig: clone(state.config), responseCurve: clone(state.responseCurve),   // P4 (I-4, FR-48): configuration and uptake as saved
       status: 'draft', recommended: false, recommendationNote: null, recommendedBy: null, recommendedRole: null, approvedBy: null, approvedAt: null
     };
     const aiTag = aiSnapshotTag(draft);   // contract §3 snapshot.ai, only when the draft came from an adopted candidate
@@ -7302,7 +8535,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     const fileName = `field-sizing-${slug(focus.name)}.xlsx`;
     audit('export', `Exported ${fileName}`, focus.id);
     let out;
-    const args = { project: clone(state.project), scenarios: state.scenarios, focusScenarioId: focus.id, audit: state.audit.slice() };
+    const args = { project: clone(state.project), scenarios: state.scenarios, focusScenarioId: focus.id, audit: state.audit.slice(), config: clone(state.config) };
     aiExportArgs(args);   // adds narratives / proposalSets only when AI was used; an AI-free export gets the baseline arguments
     try { out = IO.exportWorkbook(args); }
     catch (e) { toast(`Export failed: ${(e && e.message) || e}`, 'error'); return; }
@@ -7316,7 +8549,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     }).catch(e => toast(`Export failed: ${(e && e.message) || e}`, 'error'));
   }
   function calculateNow() {
-    if (respValueOnly()) { toast('Response Curve needs value + behaviour segmentation.', 'warning'); return null; }
+    if (valueOnlyBlocked()) { toast('Response Curve needs value + behaviour segmentation.', 'warning'); return null; }
     const inp = buildInputs();
     const r = safe(() => E.calculate(inp), null);
     if (!r) { toast('The engine failed to run.', 'error'); return null; }
@@ -7362,14 +8595,7 @@ abbr[title] { text-decoration: none; cursor: help; }
   /* ================================================================== actions */
   const toggle = key => () => { state.ui[key] = !state.ui[key]; render(); };
   Object.assign(acts, {
-    curveReset: () => {
-      const o = ma(); if (!o || readOnly()) return;
-      const edited = ARCH_NAMES().filter(curveEdited);
-      delete o.curveParams;
-      aiManualEdit(['methodAssumptions.curveParams']);
-      audit('assumption', `Response curve parameters reset to the reference values${edited.length ? ` (${edited.join(', ')})` : ''}`);
-      focusAfter('curve-params'); render();
-    },
+    toggleCurveAdv: () => { state.ui.curveAdvOpen = !state.ui.curveAdvOpen; focusAfter('rc-adv-btn'); render(); },
     drawer: () => { state.drawerOpen = !state.drawerOpen; focusAfter('hamburger'); render(); },
     nav: el => {
       const id = el.dataset.arg;
@@ -7388,7 +8614,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     },
     pickFile: () => { if (!readOnly()) pickFile(); },
     sampleFile: el => sampleFileFor(el.dataset.arg),
-    manualSample: () => aiGuard('new data loaded', () => confirmReplace(() => { state.ui.dataSpec = null; state.ui.sizeSpec = null; state.ui.resSpec = null; setManualData(mergedSampleRows(), 'Synthetic sample values'); })),
+    manualSample: () => aiGuard('new data loaded', () => confirmReplace(() => { state.ui.dataSpec = null; state.ui.sizeSpec = null; state.ui.resSpec = null; setManualData(mergedSampleRows(), 'Synthetic sample values'); seedResponseCurve('single'); })),
     wizGo: el => {
       const to = el.dataset.arg, fl = state.importFlow;
       if (to === 'preview') { wizApply(); audit('mapping', `Mapping reviewed for ${fl.fileName}`); }
@@ -7408,6 +8634,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     reallocKeep: () => { const r = state.result; if (r && state.ui.reallocPreview) audit('assumption', `${REALLOC_LABEL}: kept Off after preview`); state.ui.reallocPreview = null; state.ui.reallocKept = r ? r.inputsHash : null; focusAfter('cover-line'); render(); },
     reallocOff: () => { reallocSet(false, 'off'); focusAfter('realloc-preview'); render(); },
     loadSampleMulti: () => aiGuard('new data loaded', () => { loadSampleProject('multi'); render(); }),
+    loadSamplePresets: () => aiGuard('new data loaded', () => { loadSampleProject('presets'); render(); }),
     toggleNotes: toggle('notesOpen'), toggleReqCols: toggle('reqColsOpen'), toggleHorizon: toggle('horizonOpen'),
     toggleAdvanced: toggle('advancedOpen'), toggleTrace: toggle('traceOpen'), toggleWhy: toggle('whyOpen'), toggleCmpDetail: toggle('cmpDetailOpen'),
     fillStarter: () => {
@@ -7468,7 +8695,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     /* CS-2 / CS-5: the visible "Value from excluded segments" control (audit row as the FTE Calculation Apply / Turn off). */
     realloc: v => { const on = v === 'true'; ma().reallocateExcluded = on; state.ui.reallocPreview = null; state.ui.reallocKept = null; audit('assumption', `${REALLOC_LABEL}: ${on ? OL('reallocateExcluded').true || 'On' : OL('reallocateExcluded').false || 'Off'}${on === DEFAULTS.reallocateExcluded ? ' (default)' : ''} (set on Model Assumptions)`); },
     /* CS-7: Response Curve segmentation type. Value only is explained and blocks the calculation; nothing is invented. */
-    segType: v => { if (v !== 'value' && v !== 'behaviour') return; state.respSegType = v; audit('assumption', `Segmentation type: ${v === 'value' ? 'Value only (Response Curve not available)' : 'Value + behaviour'}`); }
+    segType: v => { if (v !== 'value' && v !== 'behaviour') return; state.respSegType = v; audit('assumption', `Segmentation type: ${v === 'value' ? (rcFlags().allowValueOnlyResponse === true ? RCL.segTypeValueOnlyAllowed : 'Value only (Response Curve not available)') : 'Value + behaviour'}`); }
   };
   /* ================================================================== AI ASSIST (simulated, contract §7)
      FSAssist proposes and explains; FSEngine calculates; a person decides. FSAssist never sees `state`: it gets plain
@@ -7635,13 +8862,13 @@ abbr[title] { text-decoration: none; cursor: help; }
         let k = 0;
         const rk = typeof IO.rankSheets === 'function' ? safe(() => IO.rankSheets(res, m), null) : null;
         if (rk && rk.length) { const j = sheets.findIndex(x => x.name === rk[0].name); if (j >= 0) k = j; }
-        const sh = sheets[k], det = safe(() => IO.detect(sh, m), null);
+        const sh = sheets[k], det = safe(() => IO.detect(sh, m, { sheets: [sh], archetypes: liveArchetypes() }), null);
         if (!det) { failed[m] = []; return; }
         const missing = F.requiredMapping(m, det.inputGrain).filter(x => det.mapping[x] == null);
         if (missing.length) { failed[m] = missing; return; }
         const mapping = {};
         mappingFieldsFor(m, det.inputGrain, DEFAULTS.allocation).forEach(f => { if (det.mapping[f.id] != null) mapping[f.id] = det.mapping[f.id]; });
-        const ap = safe(() => IO.applyMapping(sh, { headerRow: det.headerRow, inputGrain: det.inputGrain, mapping }, m), null);
+        const ap = safe(() => IO.applyMapping(sh, { headerRow: det.headerRow, inputGrain: det.inputGrain, mapping, archetypes: liveArchetypes() }, m), null);
         if (!ap || (ap.errors || []).length || !(ap.segments || []).length) { failed[m] = []; return; }
         byMethod[m] = { sheetName: sh.name, headerRow: det.headerRow, inputGrain: det.inputGrain, mapping, confidence: Object.assign({}, det.confidence || {}),
           heads: (sh.rows[det.headerRow] || []).map((c, i) => (c === '' || c == null ? `Column ${i + 1}` : String(c))),
@@ -7837,6 +9064,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       return row;
     });
     state.entities = ds.entities ? clone(ds.entities) : null;
+    fillDefaultUptake();   // P4: as for an import, archetypes new to the project start with the configuration's default uptake
     state.shared = Object.assign(blankShared(), inp.shared, { layers: Object.assign(blankShared().layers, inp.shared.layers || {}) }); state.repCostByMode = {};
     if (m === 'workload') state.workloadCost = inp.shared.repCost != null;
     else {
@@ -8091,7 +9319,7 @@ abbr[title] { text-decoration: none; cursor: help; }
     if (state.ai.entry === 'manual' || state.segments.length || state.project.method) return '';
     return `<div class="ai-entry">${card({ id: 'c-ai-entry', cls: 'ai-card', title: `${GLYPH} Start with AI assist`, sub: `${simTag()} Describe the engagement, bring in the segment data and confirm it. The simulated assistant proposes 3–4 candidate scenarios, each calculated by the engine. Nothing enters your model until you review and adopt it.`,
         body: `<div>${btn({ label: 'Start with AI assist', act: 'aiStart', kind: 'primary', id: 'ai-start', ic: 'chevRight', reason: readOnly() ? 'Read-only role' : '' })}</div>` })}
-      ${card({ id: 'c-manual-entry', title: 'Set up manually', sub: 'Name the engagement, choose the sizing method and bring in the data yourself, step by step. New to field sizing? Load a complete synthetic project to see how every step fits together.', body: `<div class="row-actions">${btn({ label: 'Set up manually', act: 'aiManual', kind: 'outline', id: 'ai-manual' })}${btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'text', ic: 'file', id: 'load-sample' })}${SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : ''}</div>` })}</div>`;
+      ${card({ id: 'c-manual-entry', title: 'Set up manually', sub: 'Name the engagement, choose the sizing method and bring in the data yourself, step by step. New to field sizing? Load a complete synthetic project to see how every step fits together.', body: `<div class="row-actions">${btn({ label: 'Set up manually', act: 'aiManual', kind: 'outline', id: 'ai-manual' })}${btn({ label: 'Load synthetic sample project', act: 'loadSample', kind: 'text', ic: 'file', id: 'load-sample' })}${SAMPLE && SAMPLE.multiSpecialty ? btn({ label: 'Load multi-specialty synthetic sample', act: 'loadSampleMulti', kind: 'text', ic: 'file', id: 'load-sample-multi' }) : ''}${presetSampleBtn()}</div>` })}</div>`;
   }
   const AI_STEPS = [['brief', 'Brief'], ['data', 'Data'], ['confirm', 'Confirm data'], ['build', 'Candidates']];
   function aiIntakeView() {
@@ -8451,7 +9679,8 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
   function onInput(ev) {
     const el = ev.target;
-    if (el.dataset.bind) { setPath(el.dataset.bind, el.dataset.kind === 'num' ? parseNum(el.value) : el.value); if (/^ma\.curveParams\./.test(el.dataset.bind)) refreshCurve(); return; }
+    if (el.dataset.bind) { setPath(el.dataset.bind, el.dataset.kind === 'num' ? parseNum(el.value) : el.value); return; }
+    if (el.dataset.rcArch != null || el.dataset.rcNote) { rcInput(el); return; }
     if (el.dataset.apply) { (state.ui.specApply = state.ui.specApply || {})[el.dataset.apply] = el.value; return; }
     if (el.dataset.seg != null) {
       const s = state.segments[+el.dataset.seg], f = el.dataset.field;
@@ -8461,6 +9690,8 @@ abbr[title] { text-decoration: none; cursor: help; }
   }
   function onChange(ev) {
     const el = ev.target;
+    if (el.dataset.cfg != null) { configChange(el); return; }
+    if (el.dataset.rcArch != null || el.dataset.rcNote) { rcCommit(el); renderSoon(); return; }
     if (el.dataset.radio) {
       const a = el.dataset.radio;
       aiManualEdit(aiRadioPaths(a));
@@ -8492,7 +9723,7 @@ abbr[title] { text-decoration: none; cursor: help; }
       renderSoon();
     }
   }
-  function onFocusIn(ev) { const el = ev.target; if (el.dataset && (el.dataset.bind || el.dataset.seg != null)) el.dataset.orig = el.value; }
+  function onFocusIn(ev) { const el = ev.target; if (el.dataset && (el.dataset.bind || el.dataset.seg != null || el.dataset.rcArch != null || el.dataset.rcNote)) el.dataset.orig = el.value; }
   function onKey(ev) {
     if (lb) {
       const n = lb.el.querySelectorAll('[role=option]').length;
@@ -8512,13 +9743,13 @@ abbr[title] { text-decoration: none; cursor: help; }
       if (ev.key === 'Escape') { ev.preventDefault(); closeDialog(); return; }
       if (ev.key === 'Tab') {
         const dlg = document.getElementById('dlg');
-        const f = [...dlg.querySelectorAll('button, input, textarea, [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
+        const f = [...dlg.querySelectorAll('button, input, textarea, select, [tabindex]:not([tabindex="-1"])')].filter(x => !x.disabled && x.offsetParent !== null);
         if (!f.length) return;
         const first = f[0], last = f[f.length - 1];
         if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
         else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
       }
-      return;
+      if (!(t.getAttribute && t.getAttribute('role') === 'tab' && t.closest('#dlg'))) return;   // P3: the configurator's tabs keep arrow-key roving
     }
     if (ev.key === 'Escape' && state.drawerOpen) { state.drawerOpen = false; focusAfter('hamburger'); render(); return; }
     /* Roving focus for radio-card groups, role switcher and tabs (arrow keys move focus; Enter/Space selects). */
